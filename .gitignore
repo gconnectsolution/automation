@@ -1,0 +1,6 @@
+node_modules/
+.puppeteer/
+*.local-chromium/
+*.log
+.env
+dist/
