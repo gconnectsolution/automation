@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Bangalore OSM Businesses</title>
+  <style>
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 8px; }
+    th { background: #f4f4f4; }
+  </style>
+</head>
+<body>
+  <h1>Bangalore Local Businesses</h1>
+  <table id="businessTable">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Phone</th>
+        <th>Website</th>
+        <th>Category</th>
+        <th>Address</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    async function loadBusinesses() {
+      const res = await fetch("http://localhost:3000/api/businesses");
+      const data = await res.json();
+      const tbody = document.querySelector("#businessTable tbody");
+
+      data.forEach(b => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${b.name}</td>
+          <td>${b.phone}</td>
+          <td><a href="${b.website}" target="_blank">${b.website}</a></td>
+          <td>${b.category}</td>
+          <td>${b.address}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+    loadBusinesses();
+  </script>
+</body>
+</html>

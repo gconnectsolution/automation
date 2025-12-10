@@ -1,15 +1,10 @@
 const axios = require("axios");
 const fs = require("fs");
 const XLSX = require("xlsx");
-const express = require('express');
-const bodyParser = require('body-parser');
-const cors = require('cors');
-
-// This is the correct way to include your scraping logic
-const { startScrapingFromParams } = require('./scraper'); 
+const express = require("express");
 
 const app = express();
-const port = 3000;
+const PORT = 3000;
 
 const OUTPUT_CSV = "bangalore_osm.csv";
 const OUTPUT_XLSX = "bangalore_osm.xlsx";
@@ -21,7 +16,7 @@ const OVERPASS_URLS = [
   "https://overpass-api.de/api/interpreter"
 ];
 
-// Query: only local businesses (restaurants, bakeries, gyms, clinics, real estate, etc.)
+// Query
 const query = `
 [out:json][timeout:25];
 area["name"="Bengaluru"]->.a;
@@ -72,6 +67,14 @@ function saveExcel(data) {
   console.log("✅ Excel saved →", OUTPUT_XLSX);
 }
 
+// Cached data for API
+let cachedData = [];
+
+app.get("/api/businesses", (req, res) => {
+  res.json(cachedData);
+});
+
+// Run scraping once at startup
 (async () => {
   try {
     console.log("Fetching OSM data...");
@@ -91,22 +94,25 @@ function saveExcel(data) {
         address: `${el.tags["addr:housenumber"] || ""} ${el.tags["addr:street"] || ""}, ${el.tags["addr:city"] || ""} ${el.tags["addr:postcode"] || ""}`
       }));
 
-    // Deduplicate by name+address
+    // Deduplicate
     const seen = new Set();
-    const unique = results.filter(r => {
+    cachedData = results.filter(r => {
       const key = r.name + r.address;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
 
-    console.log("📊 Total businesses extracted:", unique.length);
+    console.log("📊 Total businesses extracted:", cachedData.length);
 
-    fs.writeFileSync(OUTPUT_CSV, toCSV(unique));
+    // Save files
+    fs.writeFileSync(OUTPUT_CSV, toCSV(cachedData));
     console.log("✅ CSV saved →", OUTPUT_CSV);
+    saveExcel(cachedData);
 
-    saveExcel(unique);
   } catch (err) {
     console.error("❌ Scraping failed:", err.message);
   }
 })();
+
+app.listen(PORT, () => console.log(`🚀 Server running at http://localhost:${PORT}`));

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OSM Scraper Frontend</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .query-input-group { border: 1px solid #ccc; padding: 15px; margin-bottom: 10px; }
+        label { display: block; margin-top: 10px; font-weight: bold; }
+        input[type="text"] { width: 90%; padding: 8px; border: 1px solid #ddd; }
+        button { padding: 10px 15px; margin-top: 10px; cursor: pointer; margin-right: 10px;}
+        #output { background: #eee; padding: 15px; white-space: pre-wrap; margin-top: 20px; border: 1px solid #ccc;}
+        .remove-button { background-color: #f44336; color: white; border: none; padding: 5px 10px; margin-top: 5px;}
+    </style>
+</head>
+<body>
+    <h1>Dynamic OSM Data Scraper</h1>
+    
+    <div id="query-form-container">
+        <h2>Define Queries (Area: Bangalore):</h2>
+        <div id="queries-list">
+            <div class="query-input-group">
+                <label>Category Name (For your results):</label>
+                <input type="text" class="query-name" value="Restaurants/Cafes">
+                <label>OSM Tag (e.g., amenity, shop):</label>
+                <input type="text" class="query-tag" value="amenity">
+                <label>Keywords (pipe-separated, e.g., restaurant|cafe):</label>
+                <input type="text" class="query-keyword" value="restaurant|cafe|fast_food">
+            </div>
+        </div>
+    </div>
+
+    <button onclick="addQueryField()">+ Add Another Query</button>
+    <button onclick="startScraping()">Start Scraping</button>
+
+    <h2>Scraping Output:</h2>
+    <pre id="output">Results will appear here...</pre>
+
+    <script>
+        const API_URL = 'http://localhost:3000/api/scrape';
+
+        function addQueryField() {
+            const container = document.getElementById('queries-list');
+            const newGroup = document.createElement('div');
+            newGroup.className = 'query-input-group';
+            newGroup.innerHTML = `
+                <label>Category Name (For your results):</label>
+                <input type="text" class="query-name" value="">
+                <label>OSM Tag:</label>
+                <input type="text" class="query-tag" value="">
+                <label>Keywords:</label>
+                <input type="text" class="query-keyword" value="">
+                <button class="remove-button" onclick="this.parentNode.remove()">Remove</button>
+            `;
+            container.appendChild(newGroup);
+        }
+
+        async function startScraping() {
+            const outputElement = document.getElementById('output');
+            outputElement.textContent = "Processing... Connecting to server and fetching data. This may take a minute or two...";
+
+            const queryGroups = document.querySelectorAll('.query-input-group');
+            const queries = [];
+            
+            // 1. Collect all dynamic inputs into the required array structure
+            queryGroups.forEach(group => {
+                queries.push({
+                    name: group.querySelector('.query-name').value,
+                    tag: group.querySelector('.query-tag').value,
+                    keyword: group.querySelector('.query-keyword').value
+                });
+            });
+
+            try {
+                // 2. Send the POST request to the Express API
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ queries: queries }),
+                });
+
+                // Check for HTTP errors before trying to parse JSON
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}. The server processed the request but found an issue.`);
+                }
+
+                const result = await response.json();
+                
+                // 3. Display the results
+                if (result.status === 'success') {
+                    outputElement.textContent = `Scraping successful! Total Leads: ${result.totalLeads}\n\n`;
+                    
+                    // Display the first 10 leads for preview
+                    const preview = result.data.slice(0, 10);
+                    outputElement.textContent += "--- Preview (First 10 Leads) ---\n";
+                    outputElement.textContent += JSON.stringify(preview, null, 2);
+                    
+                    console.log("Full Scraped Data:", result.data);
+                } else {
+                    outputElement.textContent = `Error during scraping: ${result.message}`;
+                    console.error("Server Error Response:", result);
+                }
+
+            } catch (error) {
+                // This catch handles network errors, timeouts, or unhandled HTTP status codes
+                outputElement.textContent = `Connection Error: Could not reach the backend server at ${API_URL}. Check if the PM2 server is running. (Error: ${error.message})`;
+                console.error("Fetch error:", error);
+            }
+        }
+    </script>
+</body>
+</html>
