@@ -57,9 +57,9 @@ async function fetchOverpass(query, retries = 3) {
 }
 
 function toCSV(rows) {
-  const header = "name,phone,website,category,address\n";
+  const header = "name,email,phone,website,category,address\n";
   const lines = rows.map(r =>
-    `"${r.name}","${r.phone}","${r.website}","${r.category}","${r.address}"`
+    `"${r.name}","${r.email}","${r.phone}","${r.website}","${r.category}","${r.address}"`
   );
   return header + lines.join("\n");
 }
@@ -81,6 +81,7 @@ function saveExcel(data) {
       .filter(el => el.tags && el.tags.name)
       .map(el => ({
         name: el.tags.name || "",
+        email: el.tags.email|| "",
         phone: el.tags.phone || "",
         website: el.tags.website || "",
         category:

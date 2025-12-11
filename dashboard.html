@@ -2,113 +2,58 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>OSM Scraper Frontend</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G Connect Solutions Lead Dashboard</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; }
-        .query-input-group { border: 1px solid #ccc; padding: 15px; margin-bottom: 10px; }
-        label { display: block; margin-top: 10px; font-weight: bold; }
-        input[type="text"] { width: 90%; padding: 8px; border: 1px solid #ddd; }
-        button { padding: 10px 15px; margin-top: 10px; cursor: pointer; margin-right: 10px;}
-        #output { background: #eee; padding: 15px; white-space: pre-wrap; margin-top: 20px; border: 1px solid #ccc;}
-        .remove-button { background-color: #f44336; color: white; border: none; padding: 5px 10px; margin-top: 5px;}
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; }
+        .container { max-width: 1200px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        .dashboard-stats { display: flex; gap: 20px; margin-bottom: 20px; }
+        .stat-box { background: #e0f7fa; padding: 15px; border-radius: 6px; text-align: center; flex: 1; }
+        .stat-box h2 { margin: 0; font-size: 2em; color: #00bcd4; }
+        .stat-box p { margin: 5px 0 0; color: #555; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
+        th { background-color: #00bcd4; color: white; }
+        .HOT_LEAD { background-color: #ffdddd; }
+        .WARM_LEAD { background-color: #fff9c4; }
+        .COLD_LEAD { background-color: #e3f2fd; }
+        #run-button { padding: 10px 20px; font-size: 16px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; margin-bottom: 20px; }
+        #status-message { margin-bottom: 20px; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h1>Dynamic OSM Data Scraper</h1>
-    
-    <div id="query-form-container">
-        <h2>Define Queries (Area: Bangalore):</h2>
-        <div id="queries-list">
-            <div class="query-input-group">
-                <label>Category Name (For your results):</label>
-                <input type="text" class="query-name" value="Restaurants/Cafes">
-                <label>OSM Tag (e.g., amenity, shop):</label>
-                <input type="text" class="query-tag" value="amenity">
-                <label>Keywords (pipe-separated, e.g., restaurant|cafe):</label>
-                <input type="text" class="query-keyword" value="restaurant|cafe|fast_food">
-            </div>
+    <div class="container">
+        <h1>G Connect Solutions Lead Dashboard</h1>
+        
+        <button id="run-button">Run Lead Generation & Outreach (Full Pipeline)</button>
+        <p id="status-message">Status: Ready. Click the button to start the process.</p>
+
+        <div class="dashboard-stats">
+            <div class="stat-box"><h2><span id="total-leads">0</span></h2><p>Total Leads Found</p></div>
+            <div class="stat-box"><h2><span id="hot-leads">0</span></h2><p>HOT Leads</p></div>
+            <div class="stat-box"><h2><span id="sent-emails">0</span></h2><p>Emails Attempted</p></div>
         </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Email</th>
+                    <th>Website</th>
+                    <th>Score</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="leads-table-body">
+                <tr><td colspan="7">No data available.</td></tr>
+            </tbody>
+        </table>
     </div>
+    
+    <script src="dashboard.js"></script> 
 
-    <button onclick="addQueryField()">+ Add Another Query</button>
-    <button onclick="startScraping()">Start Scraping</button>
-
-    <h2>Scraping Output:</h2>
-    <pre id="output">Results will appear here...</pre>
-
-    <script>
-        const API_URL = 'http://localhost:3000/api/scrape';
-
-        function addQueryField() {
-            const container = document.getElementById('queries-list');
-            const newGroup = document.createElement('div');
-            newGroup.className = 'query-input-group';
-            newGroup.innerHTML = `
-                <label>Category Name (For your results):</label>
-                <input type="text" class="query-name" value="">
-                <label>OSM Tag:</label>
-                <input type="text" class="query-tag" value="">
-                <label>Keywords:</label>
-                <input type="text" class="query-keyword" value="">
-                <button class="remove-button" onclick="this.parentNode.remove()">Remove</button>
-            `;
-            container.appendChild(newGroup);
-        }
-
-        async function startScraping() {
-            const outputElement = document.getElementById('output');
-            outputElement.textContent = "Processing... Connecting to server and fetching data. This may take a minute or two...";
-
-            const queryGroups = document.querySelectorAll('.query-input-group');
-            const queries = [];
-            
-            // 1. Collect all dynamic inputs into the required array structure
-            queryGroups.forEach(group => {
-                queries.push({
-                    name: group.querySelector('.query-name').value,
-                    tag: group.querySelector('.query-tag').value,
-                    keyword: group.querySelector('.query-keyword').value
-                });
-            });
-
-            try {
-                // 2. Send the POST request to the Express API
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ queries: queries }),
-                });
-
-                // Check for HTTP errors before trying to parse JSON
-                if (!response.ok) {
-                    throw new Error(`HTTP error! Status: ${response.status}. The server processed the request but found an issue.`);
-                }
-
-                const result = await response.json();
-                
-                // 3. Display the results
-                if (result.status === 'success') {
-                    outputElement.textContent = `Scraping successful! Total Leads: ${result.totalLeads}\n\n`;
-                    
-                    // Display the first 10 leads for preview
-                    const preview = result.data.slice(0, 10);
-                    outputElement.textContent += "--- Preview (First 10 Leads) ---\n";
-                    outputElement.textContent += JSON.stringify(preview, null, 2);
-                    
-                    console.log("Full Scraped Data:", result.data);
-                } else {
-                    outputElement.textContent = `Error during scraping: ${result.message}`;
-                    console.error("Server Error Response:", result);
-                }
-
-            } catch (error) {
-                // This catch handles network errors, timeouts, or unhandled HTTP status codes
-                outputElement.textContent = `Connection Error: Could not reach the backend server at ${API_URL}. Check if the PM2 server is running. (Error: ${error.message})`;
-                console.error("Fetch error:", error);
-            }
-        }
-    </script>
 </body>
 </html>
