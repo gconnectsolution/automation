@@ -4,6 +4,24 @@ const XLSX = require("xlsx");
 const cheerio = require("cheerio"); 
 const validator = require("validator"); // For email validation
 const nodemailer = require("nodemailer"); // Added Nodemailer
+const mongoose = require('mongoose');
+const bodyParser = require('body-parser');
+const dotEnv = require('dotenv');
+const userRoutes = require('./routes/userRoutes')
+const express = require('express');
+const app = express()
+
+app.use(express.json())
+app.use('/user', userRoutes);
+dotEnv.config();
+
+mongoose.connect(process.env.mongo_uri)
+.then(() => {
+    console.log('mongoDB connected successfully');
+})
+.catch((e) => {
+    console.log('mongoDB connection failed', e.message);
+})
 
 // --- CONFIGURATION ---
 const OUTPUT_CSV = "leads_scored.csv"; 
@@ -200,45 +218,70 @@ function generateEmailContent(lead) {
     // TEMPLATE GENERATION (Now generates plain text and HTML)
     // ----------------------------------------------------
     
+    const calendarLink = "https://calendar.app.google/mepp8MDWBPF24WQ28"; 
+    // or Calendly link if you prefer
+
     if (lead.priority_level === 'HOT_LEAD') {
-    subject = `Digital Marketing Strategy to boost ${businessName}'s traffic in Bengaluru`;
+    subject = `Proposed Digital Growth Plan for ${businessName} — Quick Google Meet?`;
+
     textBody = `
-      Hi ${recipientName},
-      We are **G Connect Solutions**, a digital marketing agency specializing in helping established local businesses like yours in key Bengaluru areas (like Indiranagar) convert local online searches into walk-in customers.
-      I saw that ${businessName} is a top ${category} business, and I have identified a specific strategy that could immediately boost your customer traffic, particularly leveraging your current digital presence (${website}).
-      Would you be open to reviewing a quick form where you can share a few details? This will help us tailor the digital marketing strategy specifically for ${businessName}.
+    Hi ${recipientName},
 
-      Best regards,
-      [Anudeep]
-      [G connect solutions]
-      `;
+    I’m Anudeep from G Connect Solutions. We help established Bengaluru businesses turn local online searches into real customer visits.
+    I reviewed ${businessName}'s online presence and identified a few immediate opportunities to increase qualified traffic—especially for customers searching nearby for ${category} services.
+    Rather than sending generic suggestions, I’d prefer to walk you through a tailored digital growth plan in a short Google Meet call.
 
-                } else if (lead.priority_level === 'WARM_LEAD') {
-          subject = `Quick Digital Marketing check for your ${category} website`;
-          textBody = `
-          Hello ${recipientName},
-          We are **G Connect Solutions**, and we focus on digital marketing for local businesses in Bengaluru's competitive market, ensuring their website (${website}) is driving maximum customer leads.
-          I noticed a couple of simple improvements that could significantly boost ${businessName}'s visibility among potential customers searching for ${category} services nearby.
-          Would you be open to reviewing a quick form where you can share a few details? This will help us tailor the digital marketing strategy specifically for ${businessName}.
+    You can choose a convenient time directly from my calendar:
+    ${calendarLink}
 
-          Thanks,
-          [Anudeep]
-          [G connect solutions]
-          `;
-      } else { // COLD_LEAD
-          subject = `Local Visibility Tip for ${businessName} - from G Connect Solutions`;
-          textBody = `
-          Hi ${recipientName},
-          Hope you are having a productive week at ${businessName}.
-          We are a digital marketing agency in Bengaluru, and we help businesses like yours optimize their local search profiles and OpenStreetMap listings, ensuring correct visibility across all mapping platforms.
-          Would you be open to reviewing a quick form where you can share a few details? This will help us tailor the digital marketing strategy specifically for ${businessName}.
+    If none of the available slots work, feel free to reply with a preferred time.
 
-          Thanks,
-          [Anudeep]
-          [G connect solutions]
-          
-          `;
-      }
+    Best regards,  
+    Anudeep  
+    G Connect Solutions
+    `;
+    }
+    else if (lead.priority_level === 'WARM_LEAD') {
+    subject = `Quick Google Meet to review your ${category} visibility in Bengaluru?`;
+
+    textBody = `
+    Hello ${recipientName},
+
+    I’m Anudeep from G Connect Solutions. We work with Bengaluru-based businesses to improve local visibility and ensure their websites generate consistent customer inquiries.
+    While reviewing ${businessName}, I noticed a few practical improvements that could help your website (${website}) attract more nearby customers searching for ${category} services.
+    If you’re open to it, I’d be happy to discuss these insights over a short Google Meet—no presentations, just a focused discussion.
+
+    You can pick a suitable time here:
+    ${calendarLink}
+
+    Looking forward to connecting.
+
+    Regards,  
+    Anudeep  
+    G Connect Solutions
+    `;
+    }
+    else { // COLD_LEAD
+    subject = `Idea to improve local visibility for ${businessName}`;
+
+    textBody = `
+    Hi ${recipientName},
+
+    Hope things are going well at ${businessName}.
+
+    I’m Anudeep from G Connect Solutions, a Bengaluru-based digital marketing team helping local businesses improve how they appear in Google and map-based searches.
+    Even small visibility gaps—like incomplete listings or missed local signals—can reduce how often potential customers find you.
+    If it’s useful, I’d be happy to share a few general insights relevant to ${category} businesses during a short Google Meet.
+
+    You can book a time that works for you here:
+    ${calendarLink}
+
+    Thanks for your time,  
+    Anudeep  
+    G Connect Solutions
+    `;
+    }
+
 
     // Combine the text body with the HTML buttons for the HTML version
     const htmlBody = `
@@ -280,9 +323,6 @@ async function sendEmail(lead) {
 }
 
 // ... (Rest of the script continues here, including the main execution flow)
-
-
-
 // =========================================================
 //             OUTPUT FUNCTIONS
 // =========================================================
@@ -469,5 +509,9 @@ async function runPipelineLogic() {
         console.error("HINT: If 'Authentication failed', verify the App Password. If 'Overpass' error, reduce the query scope.");
     }
 };
+
+app.listen('3001', () => {
+    console.log('server running on http//localhost:3001')
+})
 
 module.exports = {runPipelineLogic};
