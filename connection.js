@@ -1,10 +1,11 @@
-// server.js
+// connection.js
 const express = require('express');
 const path = require('path');
-const { runPipelineLogic } = require('./crawl'); // Import the logic
-
+const { runSearchLogic,runPipelineLogic } = require('./crawl'); // Import the logic
 const app = express();
 const PORT = 3000;
+
+app.use(express.json());
 
 // Middleware to serve static files (dashboard.html, dashboard.js)
 app.use(express.static(path.join(__dirname)));
@@ -19,15 +20,30 @@ app.post('/run-pipeline', async (req, res) => {
     console.log("--- Web request received to run the pipeline ---");
     try {
         // CALL THE IMPORTED FUNCTION
-        const results = await runPipelineLogic(); 
+        const results = await runPipelineLogic();
         res.json(results); // Send JSON data back to the frontend
     } catch (error) {
         console.error("Pipeline failed during execution:", error.message);
         // Send a 500 error status back to the frontend
-        res.status(500).json({ 
+        res.status(500).json({
             error: "Pipeline execution failed.",
             details: error.message || "Unknown error."
         });
+    }
+});
+
+app.post('/search-user', async (req, res) => {
+    const { city, category } = req.body;
+    console.log(`Searching for ${category} in ${city}`);
+
+    try {
+        // You can pass city/category to your existing logic
+        // For now, I'll assume runPipelineLogic handles the scraping
+        const results = await runSearchLogic(city, category); 
+        
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 

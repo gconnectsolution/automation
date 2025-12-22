@@ -20,21 +20,85 @@
         .COLD_LEAD { background-color: #e3f2fd; }
         #run-button { padding: 10px 20px; font-size: 16px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; margin-bottom: 20px; }
         #status-message { margin-bottom: 20px; font-weight: bold; }
+        .send-btn {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: bold;
+        transition: background-color 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 123, 255, 0.2);
+        margin-top: 12px;
+        }
+
+        .send-btn:hover {
+        background-color: #0056b3;
+        box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3);
+        }
+
+        .send-btn:active {
+        transform: translateY(1px);
+        }
+        .lead-details-action {
+  padding: 10px 18px;
+  background-color: #1f2937; /* dark slate */
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lead-details-action:hover {
+  background-color: #111827; /* darker on hover */
+  transform: translateY(-1px);
+}
+
+.lead-details-action:active {
+  transform: translateY(0);
+  background-color: #020617;
+}
+
+.lead-details-action:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(31, 41, 55, 0.4);
+}
+
+.lead-details-action:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
     </style>
 </head>
 <body>
     <div class="container">
         <h1>G Connect Solutions Lead Dashboard</h1>
-        
+        <div class="controls" style="margin-bottom: 20px; display: flex; gap: 10px;">
+            <input type="text" id="city-input" placeholder="Cities (comma separated)" style="padding: 10px; flex: 1;">
+            <input type="text" id="category-input" placeholder="Categories (comma separated)" style="padding: 10px; flex: 1;">
+            <button class="lead-details-action" id = 'leadSearch'>Search</button>
+        </div>
         <button id="run-button">Run Lead Generation & Outreach (Full Pipeline)</button>
+        <button class="lead-details-action" id = 'leadDetails'>Lead details</button>
         <p id="status-message">Status: Ready. Click the button to start the process.</p>
 
         <div class="dashboard-stats">
             <div class="stat-box"><h2><span id="total-leads">0</span></h2><p>Total Leads Found</p></div>
             <div class="stat-box"><h2><span id="hot-leads">0</span></h2><p>HOT Leads</p></div>
+            <div class="stat-box"><h2><span id="warm-leads">0</span></h2><p>WARM Leads</p></div>
+            <div class="stat-box"><h2><span id="cold-leads">0</span></h2><p>COLD Leads</p></div>
             <div class="stat-box"><h2><span id="sent-emails">0</span></h2><p>Emails Attempted</p></div>
         </div>
-
         <table>
             <thead>
                 <tr>
@@ -51,6 +115,7 @@
                 <tr><td colspan="7">No data available.</td></tr>
             </tbody>
         </table>
+        <button id ='sendAll' class = 'send-btn'>Send all</button>
     </div>
     
     <script src="dashboard.js"></script> 

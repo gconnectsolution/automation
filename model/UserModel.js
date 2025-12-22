@@ -1,36 +1,19 @@
 const mongoose = require('mongoose');
 
-const userIntrestedSchema = new mongoose.Schema({
-    //name,email,website,category,address,final_score,priority_level,status
-    name:{
-        type:String,
-        required:true
+const leadSchema = new mongoose.Schema({
+    name: String,
+    email: { type: String, unique: true }, // Ensure we don't duplicate emails
+    address: String,
+    website: String,
+    category: String,
+    score: Number,
+    priority_level: String,
+    status: {
+        type: String,
+        enum: ['RAW', 'SENT', 'INTERESTED', 'NOT_INTERESTED', 'EMAIL_FAILED'],
+        default: 'RAW'
     },
-    email:{
-        type:String,
-        required:true
-    },
-    address:{
-        type:String,
-        required:true,
-    },
-    website:{
-        type:String,
-        required:true,
-    },
-    category:{
-        type:String,
-        required:true,
-    },
-    score:{
-        type:Number,
-        required:true,
-    },
-    isInterested:{
-        type:Boolean,
-        default:false,
-    }
+    interestedAt: Date, // Timestamp for when they clicked
+}, { timestamps: true });
 
-});
-
-module.exports = mongoose.model('UserModel' , userIntrestedSchema);
+module.exports = mongoose.model('UserModel', leadSchema);
