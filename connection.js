@@ -1,30 +1,30 @@
-// connection.js
+// connection.js (Dashboard Server - Port 3000)
 const express = require('express');
 const path = require('path');
-const { runSearchLogic,runPipelineLogic } = require('./crawl'); // Import the logic
+const cors = require('cors');  // Optional for safety
+const { runSearchLogic, runPipelineLogic } = require('./crawl'); // Import logic
 const app = express();
-const PORT = 3000;
+const PORT = 3000;  // Fixed to 3000 for dashboard
 
+app.use(cors());  // Allow all origins (safe for dev)
 app.use(express.json());
 
-// Middleware to serve static files (dashboard.html, dashboard.js)
+// Serve static files
 app.use(express.static(path.join(__dirname)));
 
-// 1. Route to serve the HTML dashboard
+// Serve dashboard
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'dashboard.html'));
 });
 
-// 2. API endpoint to trigger the pipeline logic (called by dashboard.js)
+// Run Pipeline (scrapes Bengaluru defaults)
 app.post('/run-pipeline', async (req, res) => {
     console.log("--- Web request received to run the pipeline ---");
     try {
-        // CALL THE IMPORTED FUNCTION
         const results = await runPipelineLogic();
-        res.json(results); // Send JSON data back to the frontend
+        res.json(results);
     } catch (error) {
         console.error("Pipeline failed during execution:", error.message);
-        // Send a 500 error status back to the frontend
         res.status(500).json({
             error: "Pipeline execution failed.",
             details: error.message || "Unknown error."
@@ -32,17 +32,16 @@ app.post('/run-pipeline', async (req, res) => {
     }
 });
 
+// New: Custom Search
 app.post('/search-user', async (req, res) => {
     const { city, category } = req.body;
-    console.log(`Searching for ${category} in ${city}`);
-
+    console.log(`DEBUG: Received search request: city="${city}", category="${category}"`);
     try {
-        // You can pass city/category to your existing logic
-        // For now, I'll assume runPipelineLogic handles the scraping
-        const results = await runSearchLogic(city, category); 
-        
+        const results = await runSearchLogic(city, category);
+        console.log(`DEBUG: Search completed, returning ${results.length} leads`);
         res.json(results);
     } catch (error) {
+        console.error("Search failed:", error.message);
         res.status(500).json({ error: error.message });
     }
 });

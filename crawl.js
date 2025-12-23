@@ -2,112 +2,100 @@ const axios = require("axios");
 const fs = require("fs");
 const XLSX = require("xlsx");
 const cheerio = require("cheerio");
-const validator = require("validator"); // For email validation
-const nodemailer = require("nodemailer"); // Added Nodemailer
+const validator = require("validator");
+const nodemailer = require("nodemailer");
 const mongoose = require('mongoose');
-const bodyParser = require('body-parser'); // Not needed; express.json() handles it
 const dotEnv = require('dotenv');
-const cors = require('cors'); // For CORS
-const userRoutes = require('./routes/userRoutes')
+const cors = require('cors');
+const userRoutes = require('./routes/userRoutes');
 const express = require('express');
 const app = express();
 const UserModel = require('./model/UserModel');
 
-// Apply CORS FIRST (before any routes or other middleware)
-app.use(cors({
-    origin: 'http://localhost:3000',
-    methods: ['GET', 'POST', 'OPTIONS'],  // Added OPTIONS for preflight
-    allowedHeaders: ['Content-Type'],
-    credentials: false  // No auth needed here
-}));
-
-// Then JSON parsing and routes
-app.use(express.json());  // Handles body parsing
-app.use('/user', userRoutes);
-
+// Load env first
 dotEnv.config();
+
+// Mongo connect (non-blocking)
 mongoose.connect(process.env.mongo_uri)
-.then(() => {
-    console.log('mongoDB connected successfully');
-})
-.catch((e) => {
-    console.log('mongoDB connection failed', e.message);
-})
+.then(() => console.log('mongoDB connected successfully'))
+.catch((e) => console.error('mongoDB connection failed', e.message));
 
-// --- GLOBAL FOR PERSISTING LEADS (IN-MEMORY) ---
+// --- GLOBAL & CONFIG ---
 let currentLeads = [];
-
-// --- CONFIGURATION ---
 const OUTPUT_CSV = "leads_scored.csv";
 const OUTPUT_XLSX = "leads_scored.xlsx";
-// --- STEP 4 CONFIGURATION: EMAIL SENDER ---
 const SENDER_EMAIL = 'mailtestings63@gmail.com';
-const SENDER_PASS = 'lmsy dulw vscf vrxb'; // Your App Password
+const SENDER_PASS = 'lmsy dulw vscf vrxb';
 const SENDER_NAME = '[Anudeep/G Connect Solutions]';
-// Nodemailer transport object (Example: Gmail SMTP)
 const transporter = nodemailer.createTransport({
     service: 'gmail',
-    auth: {
-        user: SENDER_EMAIL,
-        pass: SENDER_PASS,
-    },
+    auth: { user: SENDER_EMAIL, pass: SENDER_PASS },
     pool: true,
     maxMessages: 100,
     maxConnections: 10
 });
-// Delay function to avoid rate limits (crucial for cold outreach)
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-// Overpass mirrors for stability and retries
+
+// --- MIDDLEWARE (CORS FIRST) ---
+app.use(cors({
+    origin: 'http://localhost:3000',
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type']
+}));
+app.use(express.json());
+app.use('/user', userRoutes);
+
+console.log("DEBUG: Middleware set up");
+
+// --- UTILITY FUNCTIONS ---
+function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
 const OVERPASS_URLS = [
-    "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.openstreetmap.ru/api/interpreter",
-    "https://overpass-api.de/api/interpreter"
+    "https://overpass.kumi.systems/api/interpreter",           // Best overall
+    "https://overpass.nchc.org.tw/api/interpreter",           // Taiwan — MOST RELIABLE fallback
+    "https://overpass.openstreetmap.fr/api/interpreter",      // French
+    "https://overpass.openstreetmap.ie/api/interpreter",      // Irish
+    "https://overpass-api.de/api/interpreter"                 // German (last)
 ];
-// Query: Targets specific, high-density commercial areas to prevent timeouts.
-const query = `
-[out:json][timeout:45];
+
+const query = `[out:json][timeout:45];
 area["name"="Bengaluru"]->.a;
 (
-    // Focus on key commercial neighborhoods
     node(area.a)["addr:street"~"Indiranagar|Jayanagar|HSR Layout|Electronic City|Whitefield|Chickpet"];
     way(area.a)["addr:street"~"Indiranagar|Jayanagar|HSR Layout|Electronic City|Whitefield|Chickpet"];
     relation(area.a)["addr:street"~"Indiranagar|Jayanagar|HSR Layout|Electronic City|Whitefield|Chickpet"];
 )->.filtered_businesses;
 (
-    // Filter the businesses for desired categories
     node.filtered_businesses["amenity"~"restaurant|cafe|fast_food|bar|pub|clinic|hospital|doctors|pharmacy|dentist|gym"];
     node.filtered_businesses["shop"~"bakery|supermarket|convenience|clothes|electronics|furniture|books|sports"];
     node.filtered_businesses["office"~"estate_agent|real_estate|architect"];
 );
 out body;
 >;
-out skel qt;
-`;
-// =========================================================
-//             CORE UTILITY FUNCTIONS (STEP 1 & 2)
-// =========================================================
-async function fetchOverpass(query, retries = 3) {
+out skel qt;`;
+
+async function fetchOverpass(query, retries = 5) {  // Increased retries
     for (const url of OVERPASS_URLS) {
         for (let i = 0; i < retries; i++) {
             try {
                 console.log(`\n\tFetching from ${url} (attempt ${i + 1})...`);
                 const res = await axios.post(url, query, {
                     headers: { "Content-Type": "text/plain" },
-                    timeout: 60000
+                    timeout: 120000  // Increased to 2 minutes
                 });
                 if (res.data && res.data.elements && res.data.elements.length > 0) {
                     return res.data;
+                } else {
+                    console.warn(`\tEmpty response from ${url}`);
                 }
             } catch (err) {
                 console.warn(`\tWarning: Failed on ${url}. Error: ${err.message}`);
-                await new Promise(r => setTimeout(r, 5000));
+                await delay(10000);  // Longer delay between retries
             }
         }
     }
     throw new Error("All Overpass servers failed or returned no data.");
 }
+
 async function findEmail(url) {
     if (!url || !url.startsWith('http')) return null;
     const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/gi;
@@ -123,104 +111,49 @@ async function findEmail(url) {
             const uniqueEmails = [...new Set(matches.map(e => e.toLowerCase().trim()))];
             return uniqueEmails.find(e => validator.isEmail(e)) || null;
         }
-    } catch (e) {
-        // Silently skip websites that fail to load
-    }
+    } catch (e) { /* Silently skip */ }
     return null;
 }
-// =========================================================
-//              LEAD SCORING FUNCTION (STEP 3)
-// =========================================================
+
 function scoreLead(lead) {
     let score = 0;
     const name = lead.name.toLowerCase();
     const category = lead.category.toLowerCase();
-   
     const GENERIC_PREFIXES = ['info', 'contact', 'support', 'sales', 'admin'];
     const isGenericEmail = lead.email && GENERIC_PREFIXES.some(prefix => lead.email.toLowerCase().startsWith(prefix));
-   
-    // SCORING RULES
-    if (category.includes('architect') || category.includes('real_estate')) {
-        score += 15;
-    } else if (category.includes('restaurant') || category.includes('cafe') || category.includes('gym')) {
-        score += 10;
-    }
-    if (name.includes('group') || name.includes('pvt') || name.includes('corp') || name.includes('ltd')) {
-        score += 10;
-    }
+    if (category.includes('architect') || category.includes('real_estate')) score += 15;
+    else if (category.includes('restaurant') || category.includes('cafe') || category.includes('gym')) score += 10;
+    if (name.includes('group') || name.includes('pvt') || name.includes('corp') || name.includes('ltd')) score += 10;
     if (lead.email) {
-         if (!isGenericEmail) {
-            score += 5; // Bonus for a seemingly personalized email
-        } else {
-            score -= 5; // Penalty for generic email
-        }
+        if (!isGenericEmail) score += 5;
+        else score -= 5;
     }
-    // ASSIGN PRIORITY LEVEL
     lead.final_score = Math.max(0, score);
-    if (lead.final_score >= 25) {
-        lead.priority_level = "HOT_LEAD";
-    } else if (lead.final_score >= 10) {
-        lead.priority_level = "WARM_LEAD";
-    } else {
-        lead.priority_level = "COLD_LEAD";
-    }
+    if (lead.final_score >= 25) lead.priority_level = "HOT_LEAD";
+    else if (lead.final_score >= 10) lead.priority_level = "WARM_LEAD";
+    else lead.priority_level = "COLD_LEAD";
     return lead;
 }
-// =========================================================
-//              EMAIL TEMPLATING AND SENDING
-// =========================================================
+
 function getFirstName(businessName) {
     if (!businessName) return "Team";
     let cleanedName = businessName.replace(/pvt|ltd|group|corp|est|&|and|'s/gi, '').trim();
     const parts = cleanedName.split(/\s+/);
-    if (parts.length > 0 && parts[0].length > 2 && parts[0].length < 10) {
-        return parts[0];
-    }
+    if (parts.length > 0 && parts[0].length > 2 && parts[0].length < 10) return parts[0];
     return "Team";
 }
-// =========================================================
-//   CAPTURE INTEREST -> SAVE TO DB -> REDIRECT TO CALENDAR
-// =========================================================
-app.get('/user/interested', async (req, res) => {
-    const { email, name, category } = req.query;
-    const calendarLink = "https://calendar.app.google/mepp8MDWBPF24WQ28";
-    if (!email) return res.status(400).send("Email parameter is missing.");
-    try {
-        // This creates a NEW record or UPDATES an existing one based on email
-        await UserModel.findOneAndUpdate(
-            { email: email.toLowerCase() },
-            {
-                name: decodeURIComponent(name),
-                category: decodeURIComponent(category),
-                status: "INTERESTED",
-                clickedAt: new Date()
-            },
-            { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
-        console.log(`✨ Lead Interested & Saved: ${email}`);
-        // Automatically send the customer to your calendar
-        res.redirect(calendarLink);
-    } catch (err) {
-        console.error("Database save failed:", err);
-        res.status(500).send("An error occurred while processing your request.");
-    }
-});
+
 function generateEmailContent(lead) {
     const recipientName = getFirstName(lead.name);
     const businessName = lead.name;
     const website = lead.raw_website;
     const category = lead.category;
     const senderEmail = SENDER_EMAIL;
-   
-    let subject = '';
-    let textBody = '';
-   
-    // --- DATABASE TRACKING LINK ---
+    let subject = '', textBody = '';
     const baseUrl = "http://localhost:3001/user/interested";
     const interestLink = `${baseUrl}?email=${encodeURIComponent(lead.email)}&name=${encodeURIComponent(lead.name)}&category=${encodeURIComponent(lead.category)}`;
     const replySubject = `Re: ${businessName} - Local Strategy`;
     const replyLinkNo = `mailto:${senderEmail}?subject=${encodeURIComponent(replySubject)}&body=${encodeURIComponent("Thanks for reaching out, but we are not interested at this time.")}`;
-   
     const buttonStyle = "display: inline-block; padding: 12px 25px; margin: 10px 5px 10px 0; color: #ffffff; text-decoration: none; border-radius: 5px; font-weight: bold; text-align: center;";
     const replyButtonsHTML = `
         <div style="margin-top: 20px;">
@@ -230,51 +163,18 @@ function generateEmailContent(lead) {
     `;
     if (lead.priority_level === 'HOT_LEAD') {
         subject = `Proposed Digital Growth Plan for ${businessName} — Quick Google Meet?`;
-        textBody = `
-Hi ${recipientName},
-I’m Anudeep from G Connect Solutions. We help established Bengaluru businesses turn local online searches into real customer visits.
-I reviewed ${businessName}'s online presence and identified a few immediate opportunities to increase qualified traffic—especially for customers searching nearby for ${category} services.
-Rather than sending generic suggestions, I’d prefer to walk you through a tailored digital growth plan in a short Google Meet call.
-Click the button below to choose a convenient time from my calendar:
-Best regards,  
-Anudeep  
-G Connect Solutions
-        `;
-    }
-    else if (lead.priority_level === 'WARM_LEAD') {
+        textBody = `Hi ${recipientName},\nI’m Anudeep from G Connect Solutions. We help established Bengaluru businesses turn local online searches into real customer visits.\nI reviewed ${businessName}'s online presence and identified a few immediate opportunities to increase qualified traffic—especially for customers searching nearby for ${category} services.\nRather than sending generic suggestions, I’d prefer to walk you through a tailored digital growth plan in a short Google Meet call.\nClick the button below to choose a convenient time from my calendar:\nBest regards,\nAnudeep\nG Connect Solutions`;
+    } else if (lead.priority_level === 'WARM_LEAD') {
         subject = `Quick Google Meet to review your ${category} visibility in Bengaluru?`;
-        textBody = `
-Hello ${recipientName},
-I’m Anudeep from G Connect Solutions. We work with Bengaluru-based businesses to improve local visibility and ensure their websites generate consistent customer inquiries.
-While reviewing ${businessName}, I noticed a few practical improvements that could help your website (${website}) attract more nearby customers searching for ${category} services.
-If you’re open to it, I’d be happy to discuss these insights over a short Google Meet.
-Click "Yes, I'm Interested" below to see my availability:
-Looking forward to connecting.
-Regards,  
-Anudeep  
-G Connect Solutions
-        `;
-    }
-    else { // COLD_LEAD
+        textBody = `Hello ${recipientName},\nI’m Anudeep from G Connect Solutions. We work with Bengaluru-based businesses to improve local visibility and ensure their websites generate consistent customer inquiries.\nWhile reviewing ${businessName}, I noticed a few practical improvements that could help your website (${website}) attract more nearby customers searching for ${category} services.\nIf you’re open to it, I’d be happy to discuss these insights over a short Google Meet.\nClick "Yes, I'm Interested" below to see my availability:\nLooking forward to connecting.\nRegards,\nAnudeep\nG Connect Solutions`;
+    } else {
         subject = `Idea to improve local visibility for ${businessName}`;
-        textBody = `
-Hi ${recipientName},
-Hope things are going well at ${businessName}.
-I’m Anudeep from G Connect Solutions, a Bengaluru-based digital marketing team helping local businesses improve how they appear in Google and map-based searches.
-Even small visibility gaps—like incomplete listings or missed local signals—can reduce how often potential customers find you.
-If it’s useful, I’d be happy to share a few general insights relevant to ${category} businesses.
-Click below to pick a time that works for you:
-Thanks for your time,  
-Anudeep  
-G Connect Solutions
-        `;
+        textBody = `Hi ${recipientName},\nHope things are going well at ${businessName}.\nI’m Anudeep from G Connect Solutions, a Bengaluru-based digital marketing team helping local businesses improve how they appear in Google and map-based searches.\nEven small visibility gaps—like incomplete listings or missed local signals—can reduce how often potential customers find you.\nIf it’s useful, I’d be happy to share a few general insights relevant to ${category} businesses.\nClick below to pick a time that works for you:\nThanks for your time,\nAnudeep\nG Connect Solutions`;
     }
-    const htmlBody = `
-        <p style="white-space: pre-wrap; font-family: sans-serif;">${textBody.trim()}</p>
-        ${replyButtonsHTML}
-    `;
+    const htmlBody = `<p style="white-space: pre-wrap; font-family: sans-serif;">${textBody.trim()}</p>${replyButtonsHTML}`;
     return { subject, textBody, htmlBody };
 }
+
 async function sendEmail(lead) {
     if (!lead.email) {
         console.warn(`Skipping email: No email found for ${lead.name}`);
@@ -298,9 +198,31 @@ async function sendEmail(lead) {
         lead.status = "EMAIL_FAILED";
     }
 }
-// =========================================================
-//              NEW ENDPOINT: SEND ALL PENDING EMAILS
-// =========================================================
+
+// --- ROUTES ---
+app.get('/user/interested', async (req, res) => {
+    const { email, name, category } = req.query;
+    const calendarLink = "https://calendar.app.google/mepp8MDWBPF24WQ28";
+    if (!email) return res.status(400).send("Email parameter is missing.");
+    try {
+        await UserModel.findOneAndUpdate(
+            { email: email.toLowerCase() },
+            {
+                name: decodeURIComponent(name),
+                category: decodeURIComponent(category),
+                status: "INTERESTED",
+                clickedAt: new Date()
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+        console.log(`✨ Lead Interested & Saved: ${email}`);
+        res.redirect(calendarLink);
+    } catch (err) {
+        console.error("Database save failed:", err);
+        res.status(500).send("An error occurred while processing your request.");
+    }
+});
+
 app.post('/send-all', async (req, res) => {
     console.log("--- Sending all pending emails ---");
     try {
@@ -309,7 +231,7 @@ app.post('/send-all', async (req, res) => {
             if (lead.status === 'PENDING') {
                 await sendEmail(lead);
                 sentCount++;
-                await delay(5000); // Rate limit delay
+                await delay(5000);
             }
         }
         res.json({ success: true, sent: sentCount });
@@ -318,9 +240,7 @@ app.post('/send-all', async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
-// =========================================================
-//              NEW ENDPOINT: GET CURRENT LEADS
-// =========================================================
+
 app.get('/get-leads', (req, res) => {
     res.json(currentLeads.map(l => ({
         Name: l.name,
@@ -332,16 +252,10 @@ app.get('/get-leads', (req, res) => {
         Status: l.status
     })));
 });
-// Add CORS middleware
-app.use(cors({
-    origin: 'http://localhost:3000',
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type']
-}));
-app.use(express.json()); // Move after CORS if not already
-// =========================================================
-//              OUTPUT FUNCTIONS
-// =========================================================
+
+console.log("DEBUG: Routes set up");
+
+// --- OUTPUT FUNCTIONS ---
 function toCSV(rows) {
     const header = "name,email,website,category,address,final_score,priority_level,status\n";
     const lines = rows.map(r =>
@@ -349,6 +263,7 @@ function toCSV(rows) {
     );
     return header + lines.join("\n");
 }
+
 function saveExcel(data) {
     const cleanData = data.map(r => ({
         Name: r.name,
@@ -366,14 +281,13 @@ function saveExcel(data) {
     XLSX.writeFile(workbook, OUTPUT_XLSX);
     console.log("✅ Excel saved →", OUTPUT_XLSX);
 }
-// =========================================================
-//             MAIN EXECUTION FLOW (FULL LOGIC)
-// =========================================================
+
+// --- MAIN PIPELINE FUNCTIONS ---
 const TEST_EMAIL_RECIPIENT = "anudeep982@gmail.com";
-const RUN_TEST_MODE = false;
+const RUN_TEST_MODE = true;
+
 async function runPipelineLogic() {
     try {
-        
         console.log("1. Starting OSM Data Fetch...");
         const data = await fetchOverpass(query);
         if (!data || !data.elements) throw new Error("No data found");
@@ -421,16 +335,14 @@ async function runPipelineLogic() {
             lead.email = validator.isEmail(lead.raw_email) ? lead.raw_email : await findEmail(lead.raw_website);
             if (lead.email) {
                 const scored = scoreLead(lead);
-                scored.status = "PENDING"; // Set pending - no send yet
+                scored.status = "PENDING";
                 finalLeads.push(scored);
-                await delay(1000); // Light delay during scraping
+                await delay(1000);
             }
         }
-        currentLeads = finalLeads; // Store for later sending
-      
+        currentLeads = finalLeads;
         fs.writeFileSync(OUTPUT_CSV, toCSV(finalLeads));
         saveExcel(finalLeads);
-      
         return finalLeads.map(l => ({
             Name: l.name,
             Category: l.category,
@@ -446,39 +358,59 @@ async function runPipelineLogic() {
     }
 }
 
-// Add this new function to your crawl.js
+// ... (keep all existing code until runSearchLogic)
+
 async function runSearchLogic(city, category) {
     try {
-        console.log(`1. Finding coordinates for city: ${city}...`);
+        console.log(`DEBUG: Starting runSearchLogic for city: "${city}", category: "${category}"`);
         
-        // Step A: Get City Area ID from Nominatim
+        // Get City Area ID from Nominatim
         const nominatimUrl = `https://nominatim.openstreetmap.org/search?city=${encodeURIComponent(city)}&format=json&limit=1`;
-        const cityRes = await axios.get(nominatimUrl, { headers: { 'User-Agent': 'LeadGenApp/1.0' } });
+        console.log(`DEBUG: Nominatim URL: ${nominatimUrl}`);
+        const cityRes = await axios.get(nominatimUrl, { 
+            headers: { 'User-Agent': 'LeadGenApp/1.0 (anudeep982@gmail.com)' }  // FIXED: Added email for Nominatim policy
+        });
 
-        if (!cityRes.data || cityRes.data.length === 0) throw new Error("City not found");
-        
-        // Convert OSM ID to Overpass Area ID
+        console.log(`DEBUG: Nominatim response:`, cityRes.data);
+
+        if (!cityRes.data || cityRes.data.length === 0) {
+            const errorMsg = `City "${city}" not found in Nominatim. Try "Bengaluru" or "Mumbai".`;
+            console.error(errorMsg);
+            throw new Error(errorMsg);
+        }
+
+        // Convert to Overpass Area ID
         const areaId = cityRes.data[0].osm_id + 3600000000;
+        console.log(`DEBUG: Area ID: ${areaId}`);
 
-        // Step B: Build Dynamic Query
+        // Dynamic Query
         const dynamicQuery = `
-            [out:json][timeout:60];
+            [out:json][timeout:120];
             area(${areaId})->.searchArea;
             (
-              nwr["amenity"~"${category}",i](area.searchArea);
-              nwr["shop"~"${category}",i](area.searchArea);
-              nwr["office"~"${category}",i](area.searchArea);
+            nwr["amenity"="gym"](area.searchArea);
+            nwr["amenity"="fitness_centre"](area.searchArea);
+            nwr["leisure"="fitness_centre"](area.searchArea);
+            nwr["amenity"~"${category}",i](area.searchArea);
+            nwr["sport"~"${category}",i](area.searchArea);
+            nwr[name~"${category}",i](area.searchArea);
+            nwr["shop"~"${category}",i](area.searchArea);
             );
             out body;
             >;
             out skel qt;
         `;
 
-        console.log("2. Fetching businesses from Overpass...");
+        console.log("DEBUG: Overpass query built, fetching...");
         const data = await fetchOverpass(dynamicQuery);
-        if (!data || !data.elements) throw new Error("No businesses found for this category in this city.");
+        console.log(`DEBUG: Overpass returned ${data?.elements?.length || 0} elements`);
 
-        // Step C: Process results using your existing pipeline
+        if (!data || !data.elements || data.elements.length === 0) {
+            const errorMsg = `No businesses found for "${category}" in "${city}". Try "restaurant" or "cafe".`;
+            console.error(errorMsg);
+            throw new Error(errorMsg);
+        }
+
         let leads = data.elements
             .filter(el => el.tags && el.tags.name)
             .map(el => ({
@@ -490,7 +422,9 @@ async function runSearchLogic(city, category) {
                 email: null
             }));
 
-        // Remove duplicates
+        console.log(`DEBUG: Filtered to ${leads.length} named leads`);
+
+        // Dedupe
         const seen = new Set();
         const uniqueLeads = leads.filter(r => {
             const key = (r.name + r.address).toLowerCase();
@@ -500,28 +434,25 @@ async function runSearchLogic(city, category) {
         });
 
         const finalLeads = [];
-        console.log(`3. Found ${uniqueLeads.length} unique businesses. Finding emails...`);
+        console.log(`DEBUG: Found ${uniqueLeads.length} unique businesses. Finding emails...`);
 
         for (let lead of uniqueLeads) {
-            // Use your existing findEmail function
             lead.email = validator.isEmail(lead.raw_email) ? lead.raw_email : await findEmail(lead.raw_website);
-            
             if (lead.email) {
-                // Use your existing scoreLead function
                 const scored = scoreLead(lead);
                 scored.status = "PENDING";
                 finalLeads.push(scored);
-                await delay(500); // Light delay
+                await delay(500);
             }
         }
 
-        currentLeads = finalLeads; // Update the global variable
-        
-        // Save files using your existing functions
+        console.log(`DEBUG: Final leads with emails: ${finalLeads.length}`);
+
+        currentLeads = finalLeads;
         fs.writeFileSync(OUTPUT_CSV, toCSV(finalLeads));
         saveExcel(finalLeads);
 
-        return finalLeads.map(l => ({
+        const output = finalLeads.map(l => ({
             Name: l.name,
             Category: l.category,
             Email: l.email,
@@ -529,8 +460,11 @@ async function runSearchLogic(city, category) {
             Score: l.final_score,
             Priority: l.priority_level,
             Status: l.status,
-            Address: l.address // Added for the details view
+            Address: l.address  // For details view
         }));
+
+        console.log(`DEBUG: Returning ${output.length} formatted leads`);
+        return output;
 
     } catch (err) {
         console.error("Search Pipeline Error:", err.message);
@@ -538,9 +472,12 @@ async function runSearchLogic(city, category) {
     }
 }
 
+// ... (rest unchanged)
 
-//app.listen('3001', () => {
-//    console.log('server running on http://localhost:3001')
-//})
-// Export the new function as well
+// --- START SERVER (UNCOMMENTED & FIXED) ---
+console.log("DEBUG: Starting server on 3001...");
+app.listen('3001', () => {
+    console.log('server running on http://localhost:3001');
+});
+
 module.exports = { runPipelineLogic, runSearchLogic };

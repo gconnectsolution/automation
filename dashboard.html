@@ -77,6 +77,95 @@
   cursor: not-allowed;
   opacity: 0.7;
 }
+.leads-sheet-container {
+            font-family: 'Arial', sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            border: 1px solid #ddd;
+        }
+
+        .leads-sheet-header {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #4CAF50;
+        }
+
+        .leads-sheet-table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: white;
+            overflow-x: auto; /* For horizontal scroll on small screens */
+        }
+
+        .leads-sheet-table th,
+        .leads-sheet-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .leads-sheet-table th {
+            background-color: #4CAF50;
+            color: white;
+            font-weight: bold;
+        }
+
+        .leads-sheet-table tr:hover {
+            background-color: #f5f5f5;
+        }
+
+        .leads-sheet-table .priority-hot {
+            background-color: #ffdddd;
+        }
+
+        .leads-sheet-table .priority-warm {
+            background-color: #fff9c4;
+        }
+
+        .leads-sheet-table .priority-cold {
+            background-color: #e3f2fd;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-style: italic;
+        }
+
+        .error {
+            text-align: center;
+            padding: 20px;
+            color: #d32f2f;
+            background-color: #ffebee;
+            border-radius: 4px;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .leads-sheet-container {
+                margin: 10px;
+                padding: 10px;
+            }
+
+            .leads-sheet-header {
+                font-size: 20px;
+            }
+
+            .leads-sheet-table th,
+            .leads-sheet-table td {
+                padding: 8px 4px;
+                font-size: 14px;
+            }
+        }
 
     </style>
 </head>
@@ -99,6 +188,12 @@
             <div class="stat-box"><h2><span id="cold-leads">0</span></h2><p>COLD Leads</p></div>
             <div class="stat-box"><h2><span id="sent-emails">0</span></h2><p>Emails Attempted</p></div>
         </div>
+        <!--<div class="leads-sheet-container">
+            <div class="leads-sheet-header">
+                Leads Sheet
+            </div>
+            <div id="sheet-content" class="loading">Loading Excel sheet...</div>
+        </div>-->
         <table>
             <thead>
                 <tr>

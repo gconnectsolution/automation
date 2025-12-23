@@ -18,8 +18,8 @@ function updateDashboard(leads) {
 
     document.getElementById('total-leads').textContent = total;
     document.getElementById('hot-leads').textContent = hot;
-    document.getElementById('warm-leads').textContent = warm;  // Fixed: was missing
-    document.getElementById('cold-leads').textContent = cold;  // Fixed: was missing
+    document.getElementById('warm-leads').textContent = warm;
+    document.getElementById('cold-leads').textContent = cold;
     document.getElementById('sent-emails').textContent = sent;
 
     // Update Table
@@ -30,7 +30,7 @@ function updateDashboard(leads) {
     }
     leads.forEach(lead => {
         const row = document.createElement('tr');
-        row.classList.add(lead.Priority); // Matches CSS classes like .HOT_LEAD
+        row.classList.add(lead.Priority);
         const websiteDisplay = lead.Website ? (lead.Website.split('//')[1] || lead.Website) : 'N/A';
         const websiteHref = lead.Website ? `href="${lead.Website}" target="_blank"` : '';
         const websiteStyle = !lead.Website ? 'style="color: gray;"' : '';
@@ -49,14 +49,13 @@ function updateDashboard(leads) {
 
 /**
  * Executes the API call to start the Node.js backend pipeline (scrape only).
- * Note: /run-pipeline is on port 3000, so relative URL is fine.
  */
 async function runPipeline() {
     runButton.disabled = true;
     statusMessage.textContent = "Status: Scraping leads... This may take several minutes.";
     tableBody.innerHTML = '<tr><td colspan="7">Scraping leads... Please wait.</td></tr>';
     try {
-        const response = await fetch('/run-pipeline', {  // Relative: hits port 3000, which calls the function
+        const response = await fetch('/run-pipeline', {
             method: 'POST'
         });
         if (!response.ok) {
@@ -64,9 +63,14 @@ async function runPipeline() {
         }
         const leads = await response.json();
         updateDashboard(leads);
+        
+        // Save to localStorage for leadDetails.html
+        localStorage.setItem('scrapedLeads', JSON.stringify(leads));
+        console.log(`DEBUG: Saved ${leads.length} leads to localStorage from pipeline:`, leads);
+        
         statusMessage.textContent = `Status: Scraping complete! Found ${leads.length} leads. Click "Send All" to send emails.`;
     } catch (error) {
-        console.error("Frontend Pipeline Error:", error);  // Better logging
+        console.error("Frontend Pipeline Error:", error);
         statusMessage.textContent = `Status: ERROR! ${error.message}. Check the server console.`;
         tableBody.innerHTML = '<tr><td colspan="7">Failed to load data. Check server and browser console.</td></tr>';
     } finally {
@@ -82,7 +86,7 @@ async function sendAllEmails() {
     sendAllBtn.textContent = 'Sending...';
     statusMessage.textContent = "Status: Sending emails... This may take several minutes.";
     try {
-        const response = await fetch(`${BACKEND_URL}/send-all`, {  // Absolute: hits port 3001
+        const response = await fetch(`${BACKEND_URL}/send-all`, {
             method: 'POST'
         });
         if (!response.ok) {
@@ -91,13 +95,18 @@ async function sendAllEmails() {
         }
         const result = await response.json();
         // Refresh leads from backend
-        const leadsRes = await fetch(`${BACKEND_URL}/get-leads`);  // Absolute: hits port 3001
+        const leadsRes = await fetch(`${BACKEND_URL}/get-leads`);
         if (!leadsRes.ok) throw new Error('Failed to refresh leads');
         const leads = await leadsRes.json();
         updateDashboard(leads);
+        
+        // Re-save updated statuses to localStorage
+        localStorage.setItem('scrapedLeads', JSON.stringify(leads));
+        console.log(`DEBUG: Re-saved ${leads.length} leads to localStorage after send:`, leads);
+        
         statusMessage.textContent = `Status: Emails sent! ${result.sent || 0} emails processed.`;
     } catch (error) {
-        console.error("Frontend Send Error:", error);  // Better logging
+        console.error("Frontend Send Error:", error);
         statusMessage.textContent = `Status: ERROR sending emails! ${error.message}`;
     } finally {
         sendAllBtn.disabled = false;
@@ -109,46 +118,67 @@ async function sendAllEmails() {
 runButton.addEventListener('click', runPipeline);
 sendAllBtn.addEventListener('click', sendAllEmails);
 
-// Initial status
-statusMessage.textContent = "Status: Ready. Click 'Run Lead Generation & Outreach (Full Pipeline)' to scrape leads, then 'Send All' to email.";
+// New: Lead Details Navigation (assumes #leadDetails button in HTML)
+const leadDetailsBtn = document.getElementById('leadDetails');
+if (leadDetailsBtn) {
+    leadDetailsBtn.addEventListener('click', () => {
+        window.location.href = 'leadDetails.html';
+    });
+}
 
-document.getElementById('leadDetails').addEventListener('click', () => {
-    window.location.href = ('leadDetails.html');
-})
-
-document.getElementById('leadSearch').addEventListener('click', async () => {
-    const cityValue = document.getElementById('city-input').value;
-    const categoryValue = document.getElementById('category-input').value;
-
-    statusMessage.textContent = `Status: Searching for ${categoryValue} in ${cityValue}...`;
-
-    try {
-        const response = await fetch('/search-user', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                city: cityValue,
-                category: categoryValue
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`Server error: ${response.statusText}`);
+// FIXED: Custom Search by City/Category – Added better error handling and logs
+const leadSearchBtn = document.getElementById('leadSearch');
+if (leadSearchBtn) {
+    leadSearchBtn.addEventListener('click', async () => {
+        const cityInput = document.getElementById('city-input');
+        const categoryInput = document.getElementById('category-input');
+        if (!cityInput || !categoryInput) {
+            statusMessage.textContent = "Status: ERROR! City or category input missing in HTML. Add #city-input and #category-input.";
+            console.error("DEBUG: Search inputs not found in DOM");
+            return;
+        }
+        const cityValue = cityInput.value.trim();
+        const categoryValue = categoryInput.value.trim();
+        if (!cityValue || !categoryValue) {
+            statusMessage.textContent = "Status: ERROR! Enter city and category.";
+            return;
         }
 
-        const data = await response.json();
-        
-        // 1. Update the table on the current page
-        updateDashboard(data);
+        console.log(`DEBUG: Starting search for city: "${cityValue}", category: "${categoryValue}"`);  // Log start
 
-        // 2. Save to "Shared Locker" for the Lead Details page
-        localStorage.setItem('scrapedLeads', JSON.stringify(data));
+        statusMessage.textContent = `Status: Searching for ${categoryValue} in ${cityValue}...`;
 
-        statusMessage.textContent = `Status: Searching complete! Found ${data.length} leads.`;
-    } catch (e) {
-        console.error("Search Error:", e);
-        statusMessage.textContent = "Status: Search failed.";
-    }
-});
+        try {
+            const response = await fetch('/search-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ city: cityValue, category: categoryValue })
+            });
+
+            console.log(`DEBUG: Search response status: ${response.status}`);  // Log response
+
+            if (!response.ok) {
+                const errText = await response.text();  // Get full error body
+                throw new Error(`Server error: ${response.statusText} - ${errText}`);
+            }
+
+            const data = await response.json();
+            console.log(`DEBUG: Search returned ${data.length} leads:`, data);  // Log data
+            
+            // Update table
+            updateDashboard(data);
+
+            // Save to localStorage for leadDetails.html
+            localStorage.setItem('scrapedLeads', JSON.stringify(data));
+            console.log(`DEBUG: Saved ${data.length} leads to localStorage from search`);
+
+            statusMessage.textContent = `Status: Search complete! Found ${data.length} leads.`;
+        } catch (e) {
+            console.error("Search Error:", e);
+            statusMessage.textContent = `Status: Search failed! ${e.message}. Check console for details.`;
+        }
+    });
+}
+
+// Initial status
+statusMessage.textContent = "Status: Ready. Click 'Run Lead Generation' to scrape leads, then 'Send All' to email.";
