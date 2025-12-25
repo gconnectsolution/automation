@@ -1,184 +1,202 @@
-// dashboard.js
+// dashboard.js - Fully fixed: tags with event listeners, safe null checks, no syntax errors
+
 const tableBody = document.getElementById('leads-table-body');
 const runButton = document.getElementById('run-button');
 const sendAllBtn = document.getElementById('sendAll');
 const statusMessage = document.getElementById('status-message');
-const BACKEND_URL = 'http://localhost:3001';  // Absolute URLs for backend
+const BACKEND_URL = 'https://automation.gconnectt.com';
 
-/**
- * Updates stats and table with leads data.
- */
+// Safe DOM references
+const cityInput = document.getElementById('city-input');
+const categoryInput = document.getElementById('category-input');
+const cityTagsContainer = document.getElementById('city-tags-container');
+
+// Store selected cities (lowercase for comparison)
+let selectedCities = [];
+
+// Function to add a city tag
+function addCityTag(cityName) {
+  const trimmed = cityName.trim();
+  if (!trimmed || selectedCities.includes(trimmed.toLowerCase())) return;
+
+  selectedCities.push(trimmed.toLowerCase());
+
+  if (!cityTagsContainer) return;
+
+  const tag = document.createElement('div');
+  tag.className = 'city-tag';
+  tag.textContent = trimmed;
+
+  // Create remove button
+  const removeBtn = document.createElement('span');
+  removeBtn.className = 'remove';
+  removeBtn.textContent = ' ×';
+  removeBtn.style.cursor = 'pointer';
+  removeBtn.style.marginLeft = '6px';
+  removeBtn.style.fontWeight = 'bold';
+
+  // Add click listener for removal
+  removeBtn.addEventListener('click', () => {
+    removeCityTag(trimmed.toLowerCase());
+  });
+
+  tag.appendChild(removeBtn);
+
+  // Insert tag before input
+  cityTagsContainer.insertBefore(tag, cityInput);
+
+  // Clear input
+  if (cityInput) cityInput.value = '';
+}
+
+// Function to remove a city tag
+function removeCityTag(cityLower) {
+  selectedCities = selectedCities.filter(c => c !== cityLower);
+
+  if (!cityTagsContainer) return;
+
+  const tags = cityTagsContainer.querySelectorAll('.city-tag');
+  tags.forEach(tag => {
+    if (tag.textContent.toLowerCase().includes(cityLower)) {
+      tag.remove();
+    }
+  });
+}
+
+// City input events (Enter or comma to add tag)
+if (cityInput) {
+  cityInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const city = cityInput.value.trim();
+      if (city) addCityTag(city);
+    }
+  });
+
+  // Also add on blur (click outside)
+  cityInput.addEventListener('blur', () => {
+    const city = cityInput.value.trim();
+    if (city) addCityTag(city);
+  });
+}
+
+// Update dashboard table & stats
 function updateDashboard(leads) {
-    // Update Stats (added warm/cold as per HTML)
-    const total = leads.length;
-    const hot = leads.filter(l => l.Priority === 'HOT_LEAD').length;
-    const warm = leads.filter(l => l.Priority === 'WARM_LEAD').length;
-    const cold = leads.filter(l => l.Priority === 'COLD_LEAD').length;
-    const sent = leads.filter(l => l.Status === 'SENT_SUCCESS').length;
+  if (!document.getElementById('total-leads')) return;
 
-    document.getElementById('total-leads').textContent = total;
-    document.getElementById('hot-leads').textContent = hot;
-    document.getElementById('warm-leads').textContent = warm;
-    document.getElementById('cold-leads').textContent = cold;
-    document.getElementById('sent-emails').textContent = sent;
+  const total = leads.length;
+  document.getElementById('total-leads').textContent = total;
+  document.getElementById('hot-leads').textContent = leads.filter(l => l.Priority === 'HOT_LEAD').length;
+  document.getElementById('warm-leads').textContent = leads.filter(l => l.Priority === 'WARM_LEAD').length;
+  document.getElementById('cold-leads').textContent = leads.filter(l => l.Priority === 'COLD_LEAD').length;
+  document.getElementById('sent-emails').textContent = leads.filter(l => l.Status === 'SENT_SUCCESS').length;
 
-    // Update Table
-    tableBody.innerHTML = '';
-    if (leads.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="7">No leads available.</td></tr>';
-        return;
-    }
-    leads.forEach(lead => {
-        const row = document.createElement('tr');
-        row.classList.add(lead.Priority);
-        const websiteDisplay = lead.Website ? (lead.Website.split('//')[1] || lead.Website) : 'N/A';
-        const websiteHref = lead.Website ? `href="${lead.Website}" target="_blank"` : '';
-        const websiteStyle = !lead.Website ? 'style="color: gray;"' : '';
-        row.innerHTML = `
-            <td>${lead.Name}</td>
-            <td>${lead.Category}</td>
-            <td>${lead.Email}</td>
-            <td><a ${websiteHref} ${websiteStyle}>${websiteDisplay}</a></td>
-            <td>${lead.Score}</td>
-            <td>${lead.Priority}</td>
-            <td>${lead.Status}</td>
-        `;
-        tableBody.appendChild(row);
+  if (tableBody) {
+    tableBody.innerHTML = total ? '' : '<tr><td colspan="7">No leads found.</td></tr>';
+    
+    leads.forEach(l => {
+      const row = document.createElement('tr');
+      row.classList.add(l.Priority || 'COLD_LEAD');
+      row.innerHTML = `
+        <td>${l.Name || 'N/A'}</td>
+        <td>${l.Category || 'N/A'}</td>
+        <td>${l.Email || 'N/A'}</td>
+        <td><a href="${l.Website || '#'}" target="_blank">${l.Website ? l.Website.split('//')[1] || l.Website : 'N/A'}</a></td>
+        <td>${l.Score || 'N/A'}</td>
+        <td>${l.Priority || 'N/A'}</td>
+        <td>${l.Status || 'PENDING'}</td>
+      `;
+      tableBody.appendChild(row);
     });
+  }
 }
 
-/**
- * Executes the API call to start the Node.js backend pipeline (scrape only).
- */
-async function runPipeline() {
+// Default Bengaluru pipeline
+if (runButton) {
+  runButton.addEventListener('click', async () => {
+    if (statusMessage) statusMessage.textContent = "Scraping Bengaluru leads...";
     runButton.disabled = true;
-    statusMessage.textContent = "Status: Scraping leads... This may take several minutes.";
-    tableBody.innerHTML = '<tr><td colspan="7">Scraping leads... Please wait.</td></tr>';
     try {
-        const response = await fetch('/run-pipeline', {
-            method: 'POST'
-        });
-        if (!response.ok) {
-            throw new Error(`Server error: ${response.statusText}. Status: ${response.status}`);
-        }
-        const leads = await response.json();
-        updateDashboard(leads);
-        
-        // Save to localStorage for leadDetails.html
-        localStorage.setItem('scrapedLeads', JSON.stringify(leads));
-        console.log(`DEBUG: Saved ${leads.length} leads to localStorage from pipeline:`, leads);
-        
-        statusMessage.textContent = `Status: Scraping complete! Found ${leads.length} leads. Click "Send All" to send emails.`;
-    } catch (error) {
-        console.error("Frontend Pipeline Error:", error);
-        statusMessage.textContent = `Status: ERROR! ${error.message}. Check the server console.`;
-        tableBody.innerHTML = '<tr><td colspan="7">Failed to load data. Check server and browser console.</td></tr>';
+      const res = await fetch('/run-pipeline', { method: 'POST' });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      updateDashboard(data);
+      localStorage.setItem('scrapedLeads', JSON.stringify(data));
+      if (statusMessage) statusMessage.textContent = `Found ${data.length} leads from Bengaluru.`;
+    } catch (e) {
+      if (statusMessage) statusMessage.textContent = `Error: ${e.message}`;
+      console.error(e);
     } finally {
-        runButton.disabled = false;
+      runButton.disabled = false;
     }
+  });
 }
 
-/**
- * Sends emails to all pending leads.
- */
-async function sendAllEmails() {
+// Send all emails
+if (sendAllBtn) {
+  sendAllBtn.addEventListener('click', async () => {
+    if (statusMessage) statusMessage.textContent = "Sending emails...";
     sendAllBtn.disabled = true;
-    sendAllBtn.textContent = 'Sending...';
-    statusMessage.textContent = "Status: Sending emails... This may take several minutes.";
     try {
-        const response = await fetch(`${BACKEND_URL}/send-all`, {
-            method: 'POST'
-        });
-        if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.error || 'Send failed');
-        }
-        const result = await response.json();
-        // Refresh leads from backend
-        const leadsRes = await fetch(`${BACKEND_URL}/get-leads`);
-        if (!leadsRes.ok) throw new Error('Failed to refresh leads');
-        const leads = await leadsRes.json();
-        updateDashboard(leads);
-        
-        // Re-save updated statuses to localStorage
-        localStorage.setItem('scrapedLeads', JSON.stringify(leads));
-        console.log(`DEBUG: Re-saved ${leads.length} leads to localStorage after send:`, leads);
-        
-        statusMessage.textContent = `Status: Emails sent! ${result.sent || 0} emails processed.`;
-    } catch (error) {
-        console.error("Frontend Send Error:", error);
-        statusMessage.textContent = `Status: ERROR sending emails! ${error.message}`;
+      await fetch(`${BACKEND_URL}/send-all`, { method: 'POST' });
+      const res = await fetch(`${BACKEND_URL}/get-leads`);
+      const data = await res.json();
+      updateDashboard(data);
+      localStorage.setItem('scrapedLeads', JSON.stringify(data));
+      if (statusMessage) statusMessage.textContent = "Emails processed!";
+    } catch (e) {
+      if (statusMessage) statusMessage.textContent = `Send error: ${e.message}`;
+      console.error(e);
     } finally {
-        sendAllBtn.disabled = false;
-        sendAllBtn.textContent = 'Send All';
+      sendAllBtn.disabled = false;
     }
+  });
 }
 
-// Event Listeners
-runButton.addEventListener('click', runPipeline);
-sendAllBtn.addEventListener('click', sendAllEmails);
-
-// New: Lead Details Navigation (assumes #leadDetails button in HTML)
-const leadDetailsBtn = document.getElementById('leadDetails');
-if (leadDetailsBtn) {
-    leadDetailsBtn.addEventListener('click', () => {
-        window.location.href = 'leadDetails.html';
-    });
-}
-
-// FIXED: Custom Search by City/Category – Added better error handling and logs
+// Multi-city search using tags
 const leadSearchBtn = document.getElementById('leadSearch');
 if (leadSearchBtn) {
-    leadSearchBtn.addEventListener('click', async () => {
-        const cityInput = document.getElementById('city-input');
-        const categoryInput = document.getElementById('category-input');
-        if (!cityInput || !categoryInput) {
-            statusMessage.textContent = "Status: ERROR! City or category input missing in HTML. Add #city-input and #category-input.";
-            console.error("DEBUG: Search inputs not found in DOM");
-            return;
-        }
-        const cityValue = cityInput.value.trim();
-        const categoryValue = categoryInput.value.trim();
-        if (!cityValue || !categoryValue) {
-            statusMessage.textContent = "Status: ERROR! Enter city and category.";
-            return;
-        }
+  leadSearchBtn.addEventListener('click', async () => {
+    if (selectedCities.length === 0) {
+      if (statusMessage) statusMessage.textContent = "Please add at least one city tag.";
+      return;
+    }
 
-        console.log(`DEBUG: Starting search for city: "${cityValue}", category: "${categoryValue}"`);  // Log start
+    const category = categoryInput?.value.trim();
+    if (!category) {
+      if (statusMessage) statusMessage.textContent = "Please enter a category.";
+      return;
+    }
 
-        statusMessage.textContent = `Status: Searching for ${categoryValue} in ${cityValue}...`;
+    const citiesString = selectedCities.join(', ');
+    if (statusMessage) statusMessage.textContent = `Scraping ${citiesString} for ${category}...`;
 
-        try {
-            const response = await fetch('/search-user', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ city: cityValue, category: categoryValue })
-            });
+    try {
+      const res = await fetch('/search-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cities: citiesString, category })
+      });
 
-            console.log(`DEBUG: Search response status: ${response.status}`);  // Log response
+      if (!res.ok) throw new Error(await res.text());
 
-            if (!response.ok) {
-                const errText = await response.text();  // Get full error body
-                throw new Error(`Server error: ${response.statusText} - ${errText}`);
-            }
-
-            const data = await response.json();
-            console.log(`DEBUG: Search returned ${data.length} leads:`, data);  // Log data
-            
-            // Update table
-            updateDashboard(data);
-
-            // Save to localStorage for leadDetails.html
-            localStorage.setItem('scrapedLeads', JSON.stringify(data));
-            console.log(`DEBUG: Saved ${data.length} leads to localStorage from search`);
-
-            statusMessage.textContent = `Status: Search complete! Found ${data.length} leads.`;
-        } catch (e) {
-            console.error("Search Error:", e);
-            statusMessage.textContent = `Status: Search failed! ${e.message}. Check console for details.`;
-        }
-    });
+      const data = await res.json();
+      updateDashboard(data);
+      localStorage.setItem('scrapedLeads', JSON.stringify(data));
+      if (statusMessage) statusMessage.textContent = `Found ${data.length} leads across selected cities.`;
+    } catch (e) {
+      if (statusMessage) statusMessage.textContent = `Search failed: ${e.message}`;
+      console.error(e);
+    }
+  });
 }
 
+// Lead details navigation
+document.getElementById('leadDetails')?.addEventListener('click', () => {
+  window.location.href = 'leadDetails.html';
+});
+
 // Initial status
-statusMessage.textContent = "Status: Ready. Click 'Run Lead Generation' to scrape leads, then 'Send All' to email.";
+if (statusMessage) {
+  statusMessage.textContent = "Status: Ready. Add cities as tags and category, then click Search Leads.";
+}

@@ -12,21 +12,22 @@ const express = require('express');
 const app = express();
 const UserModel = require('./model/UserModel');
 
-// Load env first
+// Load env
 dotEnv.config();
 
-// Mongo connect (non-blocking)
+// MongoDB
 mongoose.connect(process.env.mongo_uri)
-.then(() => console.log('mongoDB connected successfully'))
-.catch((e) => console.error('mongoDB connection failed', e.message));
+  .then(() => console.log('mongoDB connected successfully'))
+  .catch(e => console.error('mongoDB connection failed:', e.message));
 
-// --- GLOBAL & CONFIG ---
+// Globals
 let currentLeads = [];
 const OUTPUT_CSV = "leads_scored.csv";
 const OUTPUT_XLSX = "leads_scored.xlsx";
-const SENDER_EMAIL = 'mailtestings63@gmail.com';
-const SENDER_PASS = 'lmsy dulw vscf vrxb';
-const SENDER_NAME = '[Anudeep/G Connect Solutions]';
+const SENDER_EMAIL = 'gconnectsolution@gmail.com';
+const SENDER_PASS = 'zwtz tczh yzuh yopp';
+const SENDER_NAME = '[Ramya T N/G Connect Solutions]';
+
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: SENDER_EMAIL, pass: SENDER_PASS },
@@ -35,449 +36,412 @@ const transporter = nodemailer.createTransport({
     maxConnections: 10
 });
 
-// --- MIDDLEWARE (CORS FIRST) ---
-app.use(cors({
-    origin: 'http://localhost:3000',
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type']
-}));
+// Middleware
+app.use(cors({ origin: 'https://automation.gconnectt.com' }));
 app.use(express.json());
 app.use('/user', userRoutes);
 
 console.log("DEBUG: Middleware set up");
 
-// --- UTILITY FUNCTIONS ---
-function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+// Utilities
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 const OVERPASS_URLS = [
-    "https://overpass.kumi.systems/api/interpreter",           // Best overall
-    "https://overpass.nchc.org.tw/api/interpreter",           // Taiwan — MOST RELIABLE fallback
-    "https://overpass.openstreetmap.fr/api/interpreter",      // French
-    "https://overpass.openstreetmap.ie/api/interpreter",      // Irish
-    "https://overpass-api.de/api/interpreter"                 // German (last)
+  "https://overpass.kumi.systems/api/interpreter",           // Start with this (worked)
+  "https://z.overpass-api.de/api/interpreter",               // Stable German
+  "https://api.openstreetmap.fr/oapi/interpreter",
+  "https://overpass.openstreetmap.ie/api/interpreter",
+  "https://overpass-api.de/api/interpreter"
 ];
 
-const query = `[out:json][timeout:45];
-area["name"="Bengaluru"]->.a;
-(
-    node(area.a)["addr:street"~"Indiranagar|Jayanagar|HSR Layout|Electronic City|Whitefield|Chickpet"];
-    way(area.a)["addr:street"~"Indiranagar|Jayanagar|HSR Layout|Electronic City|Whitefield|Chickpet"];
-    relation(area.a)["addr:street"~"Indiranagar|Jayanagar|HSR Layout|Electronic City|Whitefield|Chickpet"];
-)->.filtered_businesses;
-(
-    node.filtered_businesses["amenity"~"restaurant|cafe|fast_food|bar|pub|clinic|hospital|doctors|pharmacy|dentist|gym"];
-    node.filtered_businesses["shop"~"bakery|supermarket|convenience|clothes|electronics|furniture|books|sports"];
-    node.filtered_businesses["office"~"estate_agent|real_estate|architect"];
-);
-out body;
->;
-out skel qt;`;
-
-async function fetchOverpass(query, retries = 5) {  // Increased retries
-    for (const url of OVERPASS_URLS) {
-        for (let i = 0; i < retries; i++) {
-            try {
-                console.log(`\n\tFetching from ${url} (attempt ${i + 1})...`);
-                const res = await axios.post(url, query, {
-                    headers: { "Content-Type": "text/plain" },
-                    timeout: 120000  // Increased to 2 minutes
-                });
-                if (res.data && res.data.elements && res.data.elements.length > 0) {
-                    return res.data;
-                } else {
-                    console.warn(`\tEmpty response from ${url}`);
-                }
-            } catch (err) {
-                console.warn(`\tWarning: Failed on ${url}. Error: ${err.message}`);
-                await delay(10000);  // Longer delay between retries
-            }
-        }
+async function fetchOverpass(query, retries = 6) {
+  for (const url of OVERPASS_URLS) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        console.log(`Fetching ${url} (attempt ${i+1})...`);
+        const res = await axios.post(url, query, {
+          headers: { "Content-Type": "text/plain" },
+          timeout: 180000
+        });
+        if (res.data?.elements?.length > 0) return res.data;
+      } catch (err) {
+        console.warn(`Failed ${url}: ${err.message}`);
+        await delay(15000);
+      }
     }
-    throw new Error("All Overpass servers failed or returned no data.");
+  }
+  throw new Error("All Overpass mirrors failed.");
 }
 
 async function findEmail(url) {
-    if (!url || !url.startsWith('http')) return null;
-    const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/gi;
-    try {
-        const res = await axios.get(url, {
-            timeout: 7000,
-            maxRedirects: 5,
-            headers: { 'User-Agent': 'Mozilla/5.0' }
-        });
-        const html = res.data;
-        const matches = html.match(emailRegex);
-        if (matches) {
-            const uniqueEmails = [...new Set(matches.map(e => e.toLowerCase().trim()))];
-            return uniqueEmails.find(e => validator.isEmail(e)) || null;
-        }
-    } catch (e) { /* Silently skip */ }
-    return null;
+  if (!url || !url.startsWith('http')) return null;
+  try {
+    const res = await axios.get(url, {
+      timeout: 8000,
+      maxRedirects: 5,
+      headers: { 'User-Agent': 'Mozilla/5.0 (LeadGenApp/1.0)' }
+    });
+    const matches = res.data.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/gi);
+    if (matches) {
+      const unique = [...new Set(matches.map(e => e.toLowerCase().trim()))];
+      return unique.find(e => validator.isEmail(e)) || null;
+    }
+  } catch {}
+  return null;
 }
 
 function scoreLead(lead) {
-    let score = 0;
-    const name = lead.name.toLowerCase();
-    const category = lead.category.toLowerCase();
-    const GENERIC_PREFIXES = ['info', 'contact', 'support', 'sales', 'admin'];
-    const isGenericEmail = lead.email && GENERIC_PREFIXES.some(prefix => lead.email.toLowerCase().startsWith(prefix));
-    if (category.includes('architect') || category.includes('real_estate')) score += 15;
-    else if (category.includes('restaurant') || category.includes('cafe') || category.includes('gym')) score += 10;
-    if (name.includes('group') || name.includes('pvt') || name.includes('corp') || name.includes('ltd')) score += 10;
-    if (lead.email) {
-        if (!isGenericEmail) score += 5;
-        else score -= 5;
-    }
-    lead.final_score = Math.max(0, score);
-    if (lead.final_score >= 25) lead.priority_level = "HOT_LEAD";
-    else if (lead.final_score >= 10) lead.priority_level = "WARM_LEAD";
-    else lead.priority_level = "COLD_LEAD";
-    return lead;
+  let score = 0;
+  const name = lead.name?.toLowerCase() || '';
+  const cat = lead.category?.toLowerCase() || '';
+  const generic = ['info', 'contact', 'support', 'sales', 'admin'];
+  const isGeneric = lead.email && generic.some(p => lead.email.toLowerCase().startsWith(p));
+
+  if (cat.includes('architect') || cat.includes('real_estate')) score += 15;
+  else if (cat.includes('restaurant') || cat.includes('cafe') || cat.includes('gym')) score += 10;
+
+  if (name.includes('group') || name.includes('pvt') || name.includes('corp') || name.includes('ltd')) score += 10;
+  if (lead.email) score += isGeneric ? -5 : 5;
+
+  lead.final_score = Math.max(0, score);
+  lead.priority_level = score >= 25 ? "HOT_LEAD" : score >= 10 ? "WARM_LEAD" : "COLD_LEAD";
+  return lead;
 }
 
-function getFirstName(businessName) {
-    if (!businessName) return "Team";
-    let cleanedName = businessName.replace(/pvt|ltd|group|corp|est|&|and|'s/gi, '').trim();
-    const parts = cleanedName.split(/\s+/);
-    if (parts.length > 0 && parts[0].length > 2 && parts[0].length < 10) return parts[0];
-    return "Team";
+function getFirstName(name) {
+  if (!name) return "Team";
+  let clean = name.replace(/pvt|ltd|group|corp|est|&|and|'s/gi, '').trim();
+  const parts = clean.split(/\s+/);
+  return (parts[0]?.length > 2 && parts[0].length < 10) ? parts[0] : "Team";
 }
 
 function generateEmailContent(lead) {
-    const recipientName = getFirstName(lead.name);
-    const businessName = lead.name;
-    const website = lead.raw_website;
-    const category = lead.category;
-    const senderEmail = SENDER_EMAIL;
-    let subject = '', textBody = '';
-    const baseUrl = "http://localhost:3001/user/interested";
-    const interestLink = `${baseUrl}?email=${encodeURIComponent(lead.email)}&name=${encodeURIComponent(lead.name)}&category=${encodeURIComponent(lead.category)}`;
-    const replySubject = `Re: ${businessName} - Local Strategy`;
-    const replyLinkNo = `mailto:${senderEmail}?subject=${encodeURIComponent(replySubject)}&body=${encodeURIComponent("Thanks for reaching out, but we are not interested at this time.")}`;
-    const buttonStyle = "display: inline-block; padding: 12px 25px; margin: 10px 5px 10px 0; color: #ffffff; text-decoration: none; border-radius: 5px; font-weight: bold; text-align: center;";
-    const replyButtonsHTML = `
-        <div style="margin-top: 20px;">
-            <a href="${interestLink}" style="${buttonStyle} background-color: #4CAF50;">Yes, I'm Interested</a>
-            <a href="${replyLinkNo}" style="${buttonStyle} background-color: #f44336;">No, Not Interested</a>
-        </div>
-    `;
-    if (lead.priority_level === 'HOT_LEAD') {
-        subject = `Proposed Digital Growth Plan for ${businessName} — Quick Google Meet?`;
-        textBody = `Hi ${recipientName},\nI’m Anudeep from G Connect Solutions. We help established Bengaluru businesses turn local online searches into real customer visits.\nI reviewed ${businessName}'s online presence and identified a few immediate opportunities to increase qualified traffic—especially for customers searching nearby for ${category} services.\nRather than sending generic suggestions, I’d prefer to walk you through a tailored digital growth plan in a short Google Meet call.\nClick the button below to choose a convenient time from my calendar:\nBest regards,\nAnudeep\nG Connect Solutions`;
-    } else if (lead.priority_level === 'WARM_LEAD') {
-        subject = `Quick Google Meet to review your ${category} visibility in Bengaluru?`;
-        textBody = `Hello ${recipientName},\nI’m Anudeep from G Connect Solutions. We work with Bengaluru-based businesses to improve local visibility and ensure their websites generate consistent customer inquiries.\nWhile reviewing ${businessName}, I noticed a few practical improvements that could help your website (${website}) attract more nearby customers searching for ${category} services.\nIf you’re open to it, I’d be happy to discuss these insights over a short Google Meet.\nClick "Yes, I'm Interested" below to see my availability:\nLooking forward to connecting.\nRegards,\nAnudeep\nG Connect Solutions`;
-    } else {
-        subject = `Idea to improve local visibility for ${businessName}`;
-        textBody = `Hi ${recipientName},\nHope things are going well at ${businessName}.\nI’m Anudeep from G Connect Solutions, a Bengaluru-based digital marketing team helping local businesses improve how they appear in Google and map-based searches.\nEven small visibility gaps—like incomplete listings or missed local signals—can reduce how often potential customers find you.\nIf it’s useful, I’d be happy to share a few general insights relevant to ${category} businesses.\nClick below to pick a time that works for you:\nThanks for your time,\nAnudeep\nG Connect Solutions`;
-    }
-    const htmlBody = `<p style="white-space: pre-wrap; font-family: sans-serif;">${textBody.trim()}</p>${replyButtonsHTML}`;
-    return { subject, textBody, htmlBody };
+  const name = getFirstName(lead.name);
+  const biz = lead.name;
+  const web = lead.raw_website;
+  const cat = lead.category;
+  const sender = SENDER_EMAIL;
+
+  let subject = '', body = '';
+  const base = "https://automation.gconnectt.com/user/interested";
+  const yesLink = `${base}?email=${encodeURIComponent(lead.email)}&name=${encodeURIComponent(lead.name)}&category=${encodeURIComponent(cat)}`;
+  const noLink = `mailto:${sender}?subject=${encodeURIComponent(`Re: ${biz} - Local Strategy`)}&body=Thanks, but not interested.`;
+
+  const btnStyle = "display:inline-block;padding:12px 25px;margin:10px 5px;color:#fff;text-decoration:none;border-radius:5px;font-weight:bold;text-align:center;";
+  const buttons = `
+    <div style="margin-top:20px;">
+      <a href="${yesLink}" style="${btnStyle}background:#4CAF50;">Yes, I'm Interested</a>
+      <a href="${noLink}" style="${btnStyle}background:#f44336;">No, Not Interested</a>
+    </div>
+  `;
+
+  if (lead.priority_level === 'HOT_LEAD') {
+    subject = `Growth Plan for ${biz} — Quick Meet?`;
+    body = `Hi ${name},\nWe help businesses like ${biz} get more customers.\nFound opportunities for ${cat}.\nLet’s discuss.\nClick below:\nBest,\nRamya T N`;
+  } else if (lead.priority_level === 'WARM_LEAD') {
+    subject = `Review your ${cat} visibility?`;
+    body = `Hello ${name},\nSaw quick wins for ${biz} (${web}).\nHappy to share.\nClick below:\nRegards,\nRamya T N`;
+  } else {
+    subject = `Idea for ${biz}`;
+    body = `Hi ${name},\nTips for ${cat} businesses available.\nClick below:\nThanks,\nRamya T N`;
+  }
+
+  return { subject, textBody: body, htmlBody: `<p style="white-space:pre-wrap;">${body}</p>${buttons}` };
 }
 
 async function sendEmail(lead) {
-    if (!lead.email) {
-        console.warn(`Skipping email: No email found for ${lead.name}`);
-        lead.status = "NO_EMAIL";
-        return;
-    }
-    const { subject, textBody, htmlBody } = generateEmailContent(lead);
-    const mailOptions = {
-        from: `${SENDER_NAME} <${SENDER_EMAIL}>`,
-        to: lead.email,
-        subject: subject,
-        text: textBody.trim(),
-        html: htmlBody,
-    };
-    try {
-        const info = await transporter.sendMail(mailOptions);
-        console.log(`\t✅ Email sent to ${lead.email} (${lead.priority_level})`);
-        lead.status = "SENT_SUCCESS";
-    } catch (error) {
-        console.error(`\t❌ FAILED email to ${lead.email}: ${error.message}`);
-        lead.status = "EMAIL_FAILED";
-    }
+  if (!lead.email) {
+    lead.status = "NO_EMAIL";
+    return;
+  }
+  const { subject, textBody, htmlBody } = generateEmailContent(lead);
+  try {
+    await transporter.sendMail({
+      from: `${SENDER_NAME} <${SENDER_EMAIL}>`,
+      to: lead.email,
+      subject,
+      text: textBody,
+      html: htmlBody
+    });
+    console.log(`✅ Sent to ${lead.email}`);
+    lead.status = "SENT_SUCCESS";
+  } catch (e) {
+    console.error(`❌ Failed ${lead.email}: ${e.message}`);
+    lead.status = "EMAIL_FAILED";
+  }
 }
 
-// --- ROUTES ---
-app.get('/user/interested', async (req, res) => {
-    const { email, name, category } = req.query;
-    const calendarLink = "https://calendar.app.google/mepp8MDWBPF24WQ28";
-    if (!email) return res.status(400).send("Email parameter is missing.");
-    try {
-        await UserModel.findOneAndUpdate(
-            { email: email.toLowerCase() },
-            {
-                name: decodeURIComponent(name),
-                category: decodeURIComponent(category),
-                status: "INTERESTED",
-                clickedAt: new Date()
-            },
-            { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
-        console.log(`✨ Lead Interested & Saved: ${email}`);
-        res.redirect(calendarLink);
-    } catch (err) {
-        console.error("Database save failed:", err);
-        res.status(500).send("An error occurred while processing your request.");
-    }
-});
-
-app.post('/send-all', async (req, res) => {
-    console.log("--- Sending all pending emails ---");
-    try {
-        let sentCount = 0;
-        for (let lead of currentLeads) {
-            if (lead.status === 'PENDING') {
-                await sendEmail(lead);
-                sentCount++;
-                await delay(5000);
-            }
-        }
-        res.json({ success: true, sent: sentCount });
-    } catch (error) {
-        console.error("Send All failed:", error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-app.get('/get-leads', (req, res) => {
-    res.json(currentLeads.map(l => ({
-        Name: l.name,
-        Category: l.category,
-        Email: l.email,
-        Website: l.raw_website,
-        Score: l.final_score,
-        Priority: l.priority_level,
-        Status: l.status
-    })));
-});
-
-console.log("DEBUG: Routes set up");
-
-// --- OUTPUT FUNCTIONS ---
+// Output functions (moved up)
 function toCSV(rows) {
-    const header = "name,email,website,category,address,final_score,priority_level,status\n";
-    const lines = rows.map(r =>
-        `"${r.name.replace(/"/g, '""')}","${r.email || ''}","${r.raw_website || ''}","${r.category}","${r.address.replace(/"/g, '""')}",${r.final_score || 0},"${r.priority_level || 'N/A'}","${r.status}"`
-    );
-    return header + lines.join("\n");
+  const header = "name,email,website,category,address,final_score,priority_level,status\n";
+  const lines = rows.map(r =>
+    `"${r.name?.replace(/"/g, '""') || ''}","${r.email || ''}","${r.raw_website || ''}","${r.category || ''}","${r.address?.replace(/"/g, '""') || ''}",${r.final_score || 0},"${r.priority_level || 'N/A'}","${r.status || ''}"`
+  );
+  return header + lines.join("\n");
 }
 
 function saveExcel(data) {
-    const cleanData = data.map(r => ({
-        Name: r.name,
-        Email: r.email || '',
-        Website: r.raw_website || '',
-        Category: r.category,
-        Address: r.address,
-        Score: r.final_score || 0,
-        Priority: r.priority_level || 'N/A',
-        Status: r.status
-    }));
-    const worksheet = XLSX.utils.json_to_sheet(cleanData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Scored Leads");
-    XLSX.writeFile(workbook, OUTPUT_XLSX);
-    console.log("✅ Excel saved →", OUTPUT_XLSX);
+  const cleanData = data.map(r => ({
+    Name: r.name || '',
+    Email: r.email || '',
+    Website: r.raw_website || '',
+    Category: r.category || '',
+    Address: r.address || '',
+    Score: r.final_score || 0,
+    Priority: r.priority_level || 'N/A',
+    Status: r.status || ''
+  }));
+  const worksheet = XLSX.utils.json_to_sheet(cleanData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Scored Leads");
+  XLSX.writeFile(workbook, OUTPUT_XLSX);
+  console.log("✅ Excel saved →", OUTPUT_XLSX);
 }
 
-// --- MAIN PIPELINE FUNCTIONS ---
-const TEST_EMAIL_RECIPIENT = "anudeep982@gmail.com";
-const RUN_TEST_MODE = true;
+// Routes
+app.get('/user/interested', async (req, res) => {
+  const { email, name, category } = req.query;
+  if (!email) return res.status(400).send("Email missing.");
+  try {
+    await UserModel.findOneAndUpdate(
+      { email: email.toLowerCase() },
+      { name: decodeURIComponent(name), category: decodeURIComponent(category), status: "INTERESTED", clickedAt: new Date() },
+      { upsert: true, new: true }
+    );
+    res.redirect("https://calendar.app.google/mepp8MDWBPF24WQ28");
+  } catch (e) {
+    res.status(500).send("Error.");
+  }
+});
+
+app.post('/send-all', async (req, res) => {
+  let count = 0;
+  for (let l of currentLeads) {
+    if (l.status === 'PENDING') {
+      await sendEmail(l);
+      count++;
+      await delay(5000);
+    }
+  }
+  res.json({ success: true, sent: count });
+});
+
+app.get('/get-leads', (req, res) => {
+  res.json(currentLeads.map(l => ({
+    Name: l.name,
+    Category: l.category,
+    Email: l.email,
+    Website: l.raw_website,
+    Score: l.final_score,
+    Priority: l.priority_level,
+    Status: l.status
+  })));
+});
+
+// Pipeline (Bengaluru default)
+const TEST_EMAIL = "anudeep982@gmail.com";
+const TEST_MODE = true;
 
 async function runPipelineLogic() {
-    try {
-        console.log("1. Starting OSM Data Fetch...");
-        const data = await fetchOverpass(query);
-        if (!data || !data.elements) throw new Error("No data found");
-        let leads = data.elements
-            .filter(el => el.tags && el.tags.name)
-            .map(el => ({
-                name: el.tags.name,
-                raw_website: el.tags.website || "",
-                raw_email: el.tags.email || "",
-                category: el.tags.amenity || el.tags.shop || "Business",
-                address: el.tags["addr:street"] || "Bengaluru",
-                email: null
-            }));
-        if (RUN_TEST_MODE) {
-            const mockLead = {
-                name: leads[0]?.name || "Anudeep",
-                raw_website: leads[0]?.raw_website || "https://gconnectsolutions.com",
-                category: leads[0]?.category || "Architect",
-                email: TEST_EMAIL_RECIPIENT,
-                final_score: 25,
-                priority_level: "HOT_LEAD",
-                status: "PENDING"
-            };
-            console.log(`Test mode: Prepared mock lead for ${mockLead.email}`);
-            currentLeads = [mockLead];
-            return [{
-                Name: mockLead.name,
-                Category: mockLead.category,
-                Email: mockLead.email,
-                Website: mockLead.raw_website,
-                Score: mockLead.final_score,
-                Priority: mockLead.priority_level,
-                Status: mockLead.status
-            }];
-        }
-        const seen = new Set();
-        const uniqueLeads = leads.filter(r => {
-            const key = (r.name + r.address).toLowerCase();
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-        });
-        const finalLeads = [];
-        for (let lead of uniqueLeads) {
-            lead.email = validator.isEmail(lead.raw_email) ? lead.raw_email : await findEmail(lead.raw_website);
-            if (lead.email) {
-                const scored = scoreLead(lead);
-                scored.status = "PENDING";
-                finalLeads.push(scored);
-                await delay(1000);
-            }
-        }
-        currentLeads = finalLeads;
-        fs.writeFileSync(OUTPUT_CSV, toCSV(finalLeads));
-        saveExcel(finalLeads);
-        return finalLeads.map(l => ({
-            Name: l.name,
-            Category: l.category,
-            Email: l.email,
-            Website: l.raw_website,
-            Score: l.final_score,
-            Priority: l.priority_level,
-            Status: l.status
-        }));
-    } catch (err) {
-        console.error("Pipeline Error:", err.message);
-        throw err;
+  try {
+    const data = await fetchOverpass(query);
+    if (!data?.elements?.length) throw new Error("No data");
+
+    let leads = data.elements
+      .filter(e => e.tags?.name)
+      .map(e => ({
+        name: e.tags.name,
+        raw_website: e.tags.website || "",
+        raw_email: e.tags.email || "",
+        category: e.tags.amenity || e.tags.shop || "Business",
+        address: e.tags["addr:street"] || "Bengaluru",
+        email: null
+      }));
+
+    if (TEST_MODE) {
+      const mock = {
+        name: leads[0]?.name || "Anudeep",
+        raw_website: "https://gconnectsolutions.com",
+        category: "Architect",
+        email: TEST_EMAIL,
+        final_score: 25,
+        priority_level: "HOT_LEAD",
+        status: "PENDING"
+      };
+      currentLeads = [mock];
+      return [{ Name: mock.name, Category: mock.category, Email: mock.email, Website: mock.raw_website, Score: mock.final_score, Priority: mock.priority_level, Status: mock.status }];
     }
+
+    const seen = new Set();
+    const unique = leads.filter(l => {
+      const key = (l.name + l.address).toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const final = [];
+    for (let l of unique) {
+      l.email = validator.isEmail(l.raw_email) ? l.raw_email : await findEmail(l.raw_website);
+      if (l.email) {
+        const s = scoreLead(l);
+        s.status = "PENDING";
+        final.push(s);
+        await delay(1000);
+      }
+    }
+
+    currentLeads = final;
+    fs.writeFileSync(OUTPUT_CSV, toCSV(final));
+    saveExcel(final);
+
+    return final.map(l => ({ Name: l.name, Category: l.category, Email: l.email, Website: l.raw_website, Score: l.final_score, Priority: l.priority_level, Status: l.status }));
+  } catch (e) {
+    console.error("Pipeline error:", e.message);
+    throw e;
+  }
 }
 
-// ... (keep all existing code until runSearchLogic)
+// Multi-city search with auto-correct
+// Multi-city search with auto-correct and broader gym/restaurant query
+async function runSearchLogic(citiesInput, category) {
+  try {
+    console.log(`Multi-city search: "${citiesInput}", category: "${category}"`);
 
-async function runSearchLogic(city, category) {
-    try {
-        console.log(`DEBUG: Starting runSearchLogic for city: "${city}", category: "${category}"`);
-        
-        // Get City Area ID from Nominatim
+    // Split cities
+    let cities = citiesInput.split(',').map(c => c.trim()).filter(c => c);
+
+    // Auto-correct old names & misspellings (expanded for India)
+    const cityMap = {
+      'bombay': 'mumbai',
+      'calcutta': 'kolkata',
+      'madras': 'chennai',
+      'bangalore': 'bengaluru',
+      'banglore': 'bengaluru',
+      'bangaluru': 'bengaluru',
+      'vishakapatnam': 'visakhapatnam',
+      'vizag': 'visakhapatnam',
+      'goa': 'panaji',             // Capital + better coverage
+      'kerala': 'kochi',           // Commercial hub → more gyms/restaurants tagged
+      'thiruvananthapuram': 'thiruvananthapuram',
+      'trivandrum': 'thiruvananthapuram'
+    };
+
+    cities = cities.map(c => {
+      const lower = c.toLowerCase();
+      return cityMap[lower] || lower; // corrected or original
+    });
+
+    console.log(`Processed cities:`, cities);
+
+    let allResults = [];
+
+    for (const city of cities) {
+      console.log(`Scraping ${city}...`);
+      try {
+        // Step 1: Get area ID from Nominatim
         const nominatimUrl = `https://nominatim.openstreetmap.org/search?city=${encodeURIComponent(city)}&format=json&limit=1`;
-        console.log(`DEBUG: Nominatim URL: ${nominatimUrl}`);
-        const cityRes = await axios.get(nominatimUrl, { 
-            headers: { 'User-Agent': 'LeadGenApp/1.0 (anudeep982@gmail.com)' }  // FIXED: Added email for Nominatim policy
+        const cityRes = await axios.get(nominatimUrl, {
+          headers: { 'User-Agent': 'LeadGenApp/1.0 (gconnectsolution@gmail.com)' },
+          timeout: 10000
         });
 
-        console.log(`DEBUG: Nominatim response:`, cityRes.data);
-
-        if (!cityRes.data || cityRes.data.length === 0) {
-            const errorMsg = `City "${city}" not found in Nominatim. Try "Bengaluru" or "Mumbai".`;
-            console.error(errorMsg);
-            throw new Error(errorMsg);
+        if (!cityRes.data?.length) {
+          console.warn(`City "${city}" not found in Nominatim`);
+          continue;
         }
 
-        // Convert to Overpass Area ID
         const areaId = cityRes.data[0].osm_id + 3600000000;
-        console.log(`DEBUG: Area ID: ${areaId}`);
 
-        // Dynamic Query
+        // Step 2: Broader query for gyms (and restaurants if category matches)
+        let amenityRegex = category.toLowerCase();
+        if (amenityRegex === 'gym') {
+          amenityRegex = 'gym|fitness_centre|fitness center|sports_centre|sports hall|health club';
+        } else if (amenityRegex.includes('restaurant')) {
+          amenityRegex = 'restaurant|cafe|fast_food|bar|pub';
+        }
+
         const dynamicQuery = `
-            [out:json][timeout:120];
-            area(${areaId})->.searchArea;
-            (
-            nwr["amenity"="gym"](area.searchArea);
-            nwr["amenity"="fitness_centre"](area.searchArea);
-            nwr["leisure"="fitness_centre"](area.searchArea);
-            nwr["amenity"~"${category}",i](area.searchArea);
-            nwr["sport"~"${category}",i](area.searchArea);
+          [out:json][timeout:180];
+          area(${areaId})->.searchArea;
+          (
+            nwr["amenity"~"${amenityRegex}",i](area.searchArea);
+            nwr["leisure"~"${amenityRegex}",i](area.searchArea);
+            nwr["building"~"${amenityRegex}",i](area.searchArea);
+            nwr["sport"~"${amenityRegex}",i](area.searchArea);
             nwr[name~"${category}",i](area.searchArea);
             nwr["shop"~"${category}",i](area.searchArea);
-            );
-            out body;
-            >;
-            out skel qt;
+          );
+          out body;
+          >;
+          out skel qt;
         `;
 
-        console.log("DEBUG: Overpass query built, fetching...");
         const data = await fetchOverpass(dynamicQuery);
-        console.log(`DEBUG: Overpass returned ${data?.elements?.length || 0} elements`);
-
-        if (!data || !data.elements || data.elements.length === 0) {
-            const errorMsg = `No businesses found for "${category}" in "${city}". Try "restaurant" or "cafe".`;
-            console.error(errorMsg);
-            throw new Error(errorMsg);
-        }
 
         let leads = data.elements
-            .filter(el => el.tags && el.tags.name)
-            .map(el => ({
-                name: el.tags.name,
-                raw_website: el.tags.website || "",
-                raw_email: el.tags.email || "",
-                category: el.tags.amenity || el.tags.shop || el.tags.office || category,
-                address: el.tags["addr:street"] ? `${el.tags["addr:street"]}, ${city}` : city,
-                email: null
-            }));
+          .filter(el => el.tags?.name)
+          .map(el => ({
+            name: el.tags.name,
+            raw_website: el.tags.website || "",
+            raw_email: el.tags.email || "",
+            category: el.tags.amenity || el.tags.shop || el.tags.office || category,
+            address: el.tags["addr:street"] ? `${el.tags["addr:street"]}, ${city}` : city,
+            email: null
+          }));
 
-        console.log(`DEBUG: Filtered to ${leads.length} named leads`);
-
-        // Dedupe
         const seen = new Set();
         const uniqueLeads = leads.filter(r => {
-            const key = (r.name + r.address).toLowerCase();
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
+          const key = (r.name + r.address).toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
         });
 
-        const finalLeads = [];
-        console.log(`DEBUG: Found ${uniqueLeads.length} unique businesses. Finding emails...`);
-
         for (let lead of uniqueLeads) {
-            lead.email = validator.isEmail(lead.raw_email) ? lead.raw_email : await findEmail(lead.raw_website);
-            if (lead.email) {
-                const scored = scoreLead(lead);
-                scored.status = "PENDING";
-                finalLeads.push(scored);
-                await delay(500);
-            }
+          lead.email = validator.isEmail(lead.raw_email) ? lead.raw_email : await findEmail(lead.raw_website);
+          if (lead.email) {
+            const scored = scoreLead(lead);
+            scored.status = "PENDING";
+            allResults.push(scored);
+            await delay(500);
+          }
         }
 
-        console.log(`DEBUG: Final leads with emails: ${finalLeads.length}`);
+        console.log(`Found ${uniqueLeads.length} unique places in ${city}, ${allResults.length} with emails so far`);
 
-        currentLeads = finalLeads;
-        fs.writeFileSync(OUTPUT_CSV, toCSV(finalLeads));
-        saveExcel(finalLeads);
-
-        const output = finalLeads.map(l => ({
-            Name: l.name,
-            Category: l.category,
-            Email: l.email,
-            Website: l.raw_website,
-            Score: l.final_score,
-            Priority: l.priority_level,
-            Status: l.status,
-            Address: l.address  // For details view
-        }));
-
-        console.log(`DEBUG: Returning ${output.length} formatted leads`);
-        return output;
-
-    } catch (err) {
-        console.error("Search Pipeline Error:", err.message);
-        throw err;
+      } catch (e) {
+        console.warn(`Error scraping ${city}: ${e.message}`);
+      }
     }
+
+    if (!allResults.length) {
+      throw new Error("No leads found in any city. Try a broader category like 'restaurant' or check if OSM has data for that area.");
+    }
+
+    currentLeads = allResults;
+    fs.writeFileSync(OUTPUT_CSV, toCSV(allResults));
+    saveExcel(allResults);
+
+    return allResults.map(l => ({
+      Name: l.name,
+      Category: l.category,
+      Email: l.email,
+      Website: l.raw_website,
+      Score: l.final_score,
+      Priority: l.priority_level,
+      Status: l.status,
+      Address: l.address
+    }));
+
+  } catch (err) {
+    console.error("Multi-city Search Error:", err.message);
+    throw err;
+  }
 }
 
-// ... (rest unchanged)
-
-// --- START SERVER (UNCOMMENTED & FIXED) ---
+// Server start
 console.log("DEBUG: Starting server on 3001...");
-app.listen('3001', () => {
-    console.log('server running on http://localhost:3001');
-});
+app.listen(3001, () => console.log('Server running on https://automation.gconnectt.com'));
 
 module.exports = { runPipelineLogic, runSearchLogic };

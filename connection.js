@@ -1,55 +1,77 @@
-// connection.js (Dashboard Server - Port 3000)
-const express = require('express');
-const path = require('path');
-const cors = require('cors');  // Optional for safety
-const { runSearchLogic, runPipelineLogic } = require('./crawl'); // Import logic
+require("dotenv").config();
+
+const express = require("express");
+const path = require("path");
+const cors = require("cors");
+const mongoose = require("mongoose");
+
+const { runSearchLogic, runPipelineLogic } = require("./crawl");
+
 const app = express();
-const PORT = 3000;  // Fixed to 3000 for dashboard
+const PORT = process.env.PORT || 3000;
 
-app.use(cors());  // Allow all origins (safe for dev)
+/* =========================
+   MIDDLEWARE
+========================= */
+app.use(cors());
 app.use(express.json());
-
-// Serve static files
 app.use(express.static(path.join(__dirname)));
 
-// Serve dashboard
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dashboard.html'));
+/* =========================
+   MONGODB CONNECTION
+========================= */
+mongoose
+  .connect(process.env.MONGODB_URI, {
+    autoIndex: false
+  })
+  .then(() => {
+    console.log("✅ MongoDB Connected");
+  })
+  .catch((err) => {
+    console.error("❌ MongoDB Connection Failed:", err.message);
+    process.exit(1);
+  });
+
+/* =========================
+   ROUTES
+========================= */
+
+// Dashboard
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "dashboard.html"));
 });
 
-// Run Pipeline (scrapes Bengaluru defaults)
-app.post('/run-pipeline', async (req, res) => {
-    console.log("--- Web request received to run the pipeline ---");
-    try {
-        const results = await runPipelineLogic();
-        res.json(results);
-    } catch (error) {
-        console.error("Pipeline failed during execution:", error.message);
-        res.status(500).json({
-            error: "Pipeline execution failed.",
-            details: error.message || "Unknown error."
-        });
-    }
+// Run pipeline
+app.post("/run-pipeline", async (req, res) => {
+  console.log("--- Running Bengaluru pipeline ---");
+  try {
+    const results = await runPipelineLogic();
+    res.json(results);
+  } catch (error) {
+    console.error("Pipeline failed:", error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// New: Custom Search
-app.post('/search-user', async (req, res) => {
-    const { city, category } = req.body;
-    console.log(`DEBUG: Received search request: city="${city}", category="${category}"`);
-    try {
-        const results = await runSearchLogic(city, category);
-        console.log(`DEBUG: Search completed, returning ${results.length} leads`);
-        res.json(results);
-    } catch (error) {
-        console.error("Search failed:", error.message);
-        res.status(500).json({ error: error.message });
-    }
+// Search user
+app.post("/search-user", async (req, res) => {
+  const { cities, category } = req.body;
+  console.log(`Multi-city search: cities="${cities}", category="${category}"`);
+  try {
+    const results = await runSearchLogic(cities, category);
+    res.json(results);
+  } catch (error) {
+    console.error("Multi-city search failed:", error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.listen(PORT, () => {
-    console.log(`\n---------------------------------------------------`);
-    console.log(`|   DASHBOARD READY  |`);
-    console.log(`|  Open your browser to:  |`);
-    console.log(`|   http://localhost:${PORT} |`);
-    console.log(`---------------------------------------------------\n`);
+/* =========================
+   SERVER START (DOCKER SAFE)
+========================= */
+app.listen(PORT, "0.0.0.0", () => {
+  console.log("---------------------------------------------------");
+  console.log("|   AUTOMATION DASHBOARD - PRODUCTION READY       |");
+  console.log(`|   Running on port ${PORT}                        |`);
+  console.log("---------------------------------------------------");
 });

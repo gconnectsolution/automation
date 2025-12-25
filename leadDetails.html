@@ -80,7 +80,7 @@
     </style>
 </head>
 <body>
-<button class="back-button">Back</button>
+<button class="back-button" id = 'back'>Back</button>
 <div class="container">
     <h1>Lead Follow-up Details</h1>
     
@@ -222,6 +222,9 @@
         if (event.target == document.getElementById('modalOverlay')) closeModal();
     }
 
+    document.getElementById('back').addEventListener('click' ,() => {
+        window.location.href = 'dashboard.html'
+    })
     // Optional: Clear localStorage button (add to HTML if needed)
     // <button onclick="clearData()">Clear Data</button>
     // function clearData() { localStorage.removeItem('scrapedLeads'); location.reload(); }
